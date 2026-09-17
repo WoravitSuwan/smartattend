@@ -15,6 +15,8 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (input: RegisterInput) => Promise<{ success: boolean; error?: string; needsEmailConfirm?: boolean }>;
+  requestPasswordReset: (email: string) => Promise<{ success: boolean; error?: string }>;
+  updatePassword: (newPassword: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   updateUser: (updates: Partial<Pick<User, 'phone' | 'avatarUrl' | 'name' | 'department' | 'faculty' | 'profileCompletedAt' | 'studentId'>>) => void;
   isAuthenticated: boolean;
@@ -175,6 +177,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { success: true, needsEmailConfirm: !data.session };
   };
 
+  const requestPasswordReset = async (email: string): Promise<{ success: boolean; error?: string }> => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail.includes('@')) {
+      return { success: false, error: 'กรุณากรอกอีเมลให้ถูกต้อง' };
+    }
+    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    if (error) {
+      const raw = error.message.toLowerCase();
+      const msg = raw.includes('rate limit') || raw.includes('too many')
+        ? 'ขอลิงก์บ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่'
+        : error.message;
+      return { success: false, error: msg };
+    }
+    return { success: true };
+  };
+
+  const updatePassword = async (newPassword: string): Promise<{ success: boolean; error?: string }> => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  };
+
   const updateUser = (updates: Partial<Pick<User, 'phone' | 'avatarUrl' | 'name' | 'department' | 'faculty' | 'profileCompletedAt' | 'studentId'>>) => {
     if (!user) return;
     setUser({ ...user, ...updates });
@@ -199,7 +225,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, updateUser, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={{ user, loading, login, register, requestPasswordReset, updatePassword, logout, updateUser, isAuthenticated: !!user }}>
       {children}
     </AuthContext.Provider>
   );

@@ -3,6 +3,13 @@ import { Users, GraduationCap, BookOpen, Cpu, Activity, UserCheck, ScanFace, Bra
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
+/** A Pi is considered online if its last heartbeat landed within this window.
+ *  pi_agent.py sends one roughly every 4s while running, so a generous
+ *  multiple of that tolerates normal network jitter without flapping. */
+const DEVICE_ONLINE_WINDOW_MS = 15_000;
+
+interface DeviceHeartbeat { device_code: string; room: string | null; seen_at: string }
+
 const StatCard = ({ icon: Icon, label, value, sub, color }: {
   icon: React.ElementType; label: string; value: string | number; sub?: string; color: string;
 }) => (
@@ -31,6 +38,31 @@ interface Stats {
 
 export default function AdminDashboard() {
   const [s, setStats] = useState<Stats | null>(null);
+  const [devices, setDevices] = useState<DeviceHeartbeat[]>([]);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 2000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    const loadDevices = async () => {
+      const { data } = await supabase
+        .from('device_heartbeats')
+        .select('device_code, room, seen_at')
+        .order('seen_at', { ascending: false });
+      setDevices((data ?? []) as DeviceHeartbeat[]);
+    };
+    loadDevices();
+    const ch = supabase
+      .channel('admin-device-heartbeats')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'device_heartbeats' }, loadDevices)
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, []);
+
+  const onlineDevices = devices.filter(d => now - new Date(d.seen_at).getTime() <= DEVICE_ONLINE_WINDOW_MS);
 
   useEffect(() => {
     (async () => {
@@ -79,7 +111,48 @@ export default function AdminDashboard() {
         <StatCard icon={Activity} label="คำขอเป็นอาจารย์" value={s?.pendingRequests ?? '—'} sub="รออนุมัติ" color="bg-warning" />
         <StatCard icon={ScanFace} label="ลงทะเบียนใบหน้าแล้ว" value={s?.faceRegistered ?? '—'} sub="คน" color="bg-success" />
         <StatCard icon={ScanFace} label="ยังไม่ลงทะเบียนใบหน้า" value={s?.faceMissing ?? '—'} sub="คน" color="bg-destructive" />
-        <StatCard icon={Cpu} label="อุปกรณ์ Raspberry Pi" value="ยังไม่เชื่อมต่อ" color="bg-muted" />
+        <StatCard
+          icon={Cpu}
+          label="อุปกรณ์ Raspberry Pi"
+          value={onlineDevices.length > 0 ? `เชื่อมต่ออยู่ ${onlineDevices.length} เครื่อง` : 'ยังไม่เชื่อมต่อ'}
+          sub={onlineDevices.length > 0 ? undefined : 'รอสัญญาณจาก pi_agent.py'}
+          color={onlineDevices.length > 0 ? 'bg-success' : 'bg-muted'}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-card rounded-2xl p-5 shadow-card border border-border">
+          <div className="flex items-center gap-2 mb-3">
+            <Cpu className="w-4 h-4 text-primary" />
+            <h2 className="text-base font-bold font-display text-foreground">อุปกรณ์ Raspberry Pi</h2>
+          </div>
+          {devices.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              ยังไม่เคยได้รับสัญญาณจากอุปกรณ์ใด — ตรวจสอบว่า pi_agent.py กำลังทำงานอยู่และตั้งค่า .env ถูกต้อง
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {devices.map(d => {
+                const online = now - new Date(d.seen_at).getTime() <= DEVICE_ONLINE_WINDOW_MS;
+                return (
+                  <div key={d.device_code} className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-muted/30">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{d.device_code}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {d.room ? `ห้อง ${d.room} • ` : ''}เห็นล่าสุด {new Date(d.seen_at).toLocaleTimeString('th-TH')}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 text-[10px] font-semibold px-2 py-1 rounded-full ${
+                      online ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {online ? 'ออนไลน์' : 'ออฟไลน์'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

@@ -321,6 +321,24 @@ export type Database = {
         }
         Relationships: []
       }
+      device_heartbeats: {
+        Row: {
+          device_code: string
+          room: string | null
+          seen_at: string
+        }
+        Insert: {
+          device_code: string
+          room?: string | null
+          seen_at?: string
+        }
+        Update: {
+          device_code?: string
+          room?: string | null
+          seen_at?: string
+        }
+        Relationships: []
+      }
       face_images: {
         Row: {
           captured_at: string

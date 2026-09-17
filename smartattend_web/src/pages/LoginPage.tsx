@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/lib/auth-context';
 import { useTheme } from '@/lib/theme-context';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Sun, Moon } from 'lucide-react';
+import { toast } from 'sonner';
 import rmutlCrest from '@/assets/rmutl-crest.png';
 import rmutlWordmark from '@/assets/rmutl-wordmark.png';
 import ViewModeToggle from '@/components/ViewModeToggle';
@@ -14,9 +15,22 @@ const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const { login } = useAuth();
+  const [showReset, setShowReset] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetSending, setResetSending] = useState(false);
+  const { login, requestPasswordReset } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+
+  const handleResetRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetSending(true);
+    const res = await requestPasswordReset(resetEmail || email);
+    setResetSending(false);
+    if (!res.success) { toast.error(res.error || 'ส่งลิงก์ไม่สำเร็จ'); return; }
+    toast.success('ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่อีเมลแล้ว กรุณาตรวจสอบกล่องจดหมาย');
+    setShowReset(false);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,10 +128,45 @@ const LoginPage = () => {
             </div>
 
             <div className="text-right">
-              <button type="button" className="text-xs text-primary hover:underline">
+              <button
+                type="button"
+                onClick={() => { setResetEmail(email); setShowReset(v => !v); }}
+                className="text-xs text-primary hover:underline"
+              >
                 ลืมรหัสผ่าน?
               </button>
             </div>
+
+            <AnimatePresence>
+              {showReset && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <form onSubmit={handleResetRequest} className="rounded-2xl bg-muted/50 p-3 space-y-2">
+                    <p className="text-[11px] text-muted-foreground">
+                      กรอกอีเมลที่ใช้สมัคร ระบบจะส่งลิงก์สำหรับตั้งรหัสผ่านใหม่ให้
+                    </p>
+                    <input
+                      type="email"
+                      value={resetEmail}
+                      onChange={(e) => setResetEmail(e.target.value)}
+                      placeholder="you@live.rmutl.ac.th"
+                      className="w-full px-3 py-2.5 rounded-xl bg-background border border-border/60 text-foreground placeholder:text-muted-foreground text-xs focus:outline-none focus:ring-2 focus:ring-secondary/50"
+                    />
+                    <button
+                      type="submit"
+                      disabled={resetSending || !resetEmail.trim()}
+                      className="w-full py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold disabled:opacity-50"
+                    >
+                      {resetSending ? 'กำลังส่ง...' : 'ส่งลิงก์ตั้งรหัสผ่านใหม่'}
+                    </button>
+                  </form>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {error && (
               <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-xs text-destructive text-center">

@@ -50,6 +50,16 @@ def _post(table: str, payload: Any) -> list[dict]:
     return r.json() if r.text else []
 
 
+def _upsert(table: str, payload: Any) -> list[dict]:
+    """POST ที่อัปเดตแถวเดิมแทนที่จะเพิ่มแถวใหม่ทุกครั้ง (ใช้ primary key ของตาราง)"""
+    h = dict(_HEADERS)
+    h["Prefer"] = "resolution=merge-duplicates,return=representation"
+    r = httpx.post(f"{SUPABASE_URL}/rest/v1/{table}",
+                   headers=h, json=payload, timeout=30)
+    r.raise_for_status()
+    return r.json() if r.text else []
+
+
 # ------------------------------------------------------------------ sessions
 def get_open_session() -> dict | None:
     """หาคาบเรียนที่เปิดอยู่ ถ้าตั้งค่า ROOM ไว้จะกรองเฉพาะห้องนั้น"""
@@ -144,9 +154,9 @@ def submit_check_in(session_id: str, student_id: str, photo_jpeg: bytes,
 
 
 def heartbeat() -> None:
-    """แจ้งว่าอุปกรณ์ยังทำงานอยู่ ไม่ทำให้โปรแกรมหยุดถ้าตารางยังไม่มี"""
+    """แจ้งว่าอุปกรณ์ยังทำงานอยู่ — อัปเดตแถวเดิมของอุปกรณ์นี้ (ไม่สร้างแถวใหม่ทุก 4 วิ)"""
     try:
-        _post("device_heartbeats", {
+        _upsert("device_heartbeats", {
             "device_code": DEVICE_CODE,
             "room": ROOM or None,
             "seen_at": datetime.now(timezone.utc).isoformat(),

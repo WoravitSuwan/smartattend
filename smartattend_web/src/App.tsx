@@ -16,6 +16,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 import StudentDashboard from "./pages/student/StudentDashboard";
 import StudentCoursesPage from "./pages/student/StudentCoursesPage";
 import AttendanceHistoryPage from "./pages/student/AttendanceHistoryPage";
@@ -135,6 +136,7 @@ function AppRoutes() {
             : <LoginPage />
       } />
       <Route path="/register" element={<RegisterPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/instructor/waiting" element={<ProtectedRoute role="pending_instructor"><InstructorWaitingApprovalPage /></ProtectedRoute>} />
       {/* Admin Routes */}
       <Route path="/admin" element={<ProtectedRoute role="admin"><AdminLayout><AdminDashboard /></AdminLayout></ProtectedRoute>} />

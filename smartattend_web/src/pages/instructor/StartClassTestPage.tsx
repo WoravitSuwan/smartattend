@@ -203,18 +203,18 @@ export default function StartClassTestPage() {
   const overtime = plannedEnd ? now.getTime() > plannedEnd.getTime() : false;
 
   return (
-    <MobileLayout title="ทดสอบเช็คชื่อ (โหมดจำลอง)">
+    <MobileLayout title="เช็คชื่อเข้าเรียน">
       <div className="p-4 space-y-4">
         <div className="bg-card rounded-2xl border border-border p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-foreground">เริ่มคลาสทดสอบ</h2>
+            <h2 className="font-semibold text-foreground">เริ่มคาบเรียน</h2>
             <div className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground">
               <Clock className="w-3.5 h-3.5" />
               {now.toLocaleTimeString('th-TH')}
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            โหมดนี้ใช้กล้องเบราว์เซอร์ของนักศึกษาแทนกล้อง Raspberry Pi ชั่วคราว
+            นักศึกษาสแกนใบหน้าด้วยกล้องมือถือ/เว็บของตนเอง ใช้คู่กับหรือแทนกล้อง Raspberry Pi หน้าห้องได้
           </p>
           <select
             value={selectedCourse}
@@ -262,7 +262,7 @@ export default function StartClassTestPage() {
               className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold disabled:opacity-50"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
-              เริ่มคลาส (ทดสอบ)
+              เริ่มคลาส
             </button>
           ) : (
             <>
