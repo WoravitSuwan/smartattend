@@ -1,0 +1,3 @@
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS faculty TEXT,
+  ADD COLUMN IF NOT EXISTS profile_completed_at TIMESTAMPTZ;

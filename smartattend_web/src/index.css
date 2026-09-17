@@ -1,0 +1,213 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* RMUTL Lanna — Brown & Gold Theme */
+    --background: 30 18% 95%;
+    --foreground: 25 35% 12%;
+
+    --card: 35 25% 99%;
+    --card-foreground: 25 35% 12%;
+
+    --popover: 35 25% 99%;
+    --popover-foreground: 25 35% 12%;
+
+    /* Dark brown — primary */
+    --primary: 22 35% 30%;
+    --primary-foreground: 38 40% 95%;
+
+    --primary-light: 30 30% 93%;
+    --primary-glow: 22 40% 40%;
+
+    /* Rich gold — secondary/accent */
+    --secondary: 38 52% 58%;
+    --secondary-foreground: 25 35% 10%;
+
+    --muted: 30 15% 92%;
+    --muted-foreground: 25 12% 48%;
+
+    --accent: 38 55% 55%;
+    --accent-foreground: 25 35% 10%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --success: 152 55% 38%;
+    --success-foreground: 0 0% 100%;
+
+    --border: 30 15% 87%;
+    --input: 30 15% 87%;
+    --ring: 22 35% 30%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 25 20% 96%;
+    --sidebar-foreground: 25 20% 26%;
+    --sidebar-primary: 22 35% 22%;
+    --sidebar-primary-foreground: 38 40% 95%;
+    --sidebar-accent: 30 15% 92%;
+    --sidebar-accent-foreground: 25 35% 12%;
+    --sidebar-border: 30 15% 87%;
+    --sidebar-ring: 38 52% 58%;
+
+    --font-display: 'IBM Plex Sans Thai', 'Sarabun', system-ui, sans-serif;
+    --font-body: 'Sarabun', 'IBM Plex Sans Thai', system-ui, sans-serif;
+
+    --shadow-card: 0 1px 3px 0 hsl(25 20% 75% / 0.15), 0 1px 2px -1px hsl(25 20% 75% / 0.1);
+    --shadow-elevated: 0 4px 16px -2px hsl(22 35% 30% / 0.1), 0 2px 4px -2px hsl(25 20% 75% / 0.08);
+    --shadow-float: 0 12px 40px -8px hsl(22 35% 30% / 0.18);
+    --shadow-brand: 0 10px 30px -10px hsl(var(--primary) / 0.45);
+    --shadow-gold: 0 8px 24px -8px hsl(var(--secondary) / 0.5);
+
+    /* deep lanna brown used for hero panels and the app bar */
+    --brand-deep: 22 42% 18%;
+    --brand-ink: 24 30% 14%;
+  }
+
+  .dark {
+    --background: 22 25% 7%;
+    --foreground: 35 25% 93%;
+    --card: 22 22% 11%;
+    --card-foreground: 35 25% 93%;
+    --popover: 22 22% 11%;
+    --popover-foreground: 35 25% 93%;
+    --primary: 38 55% 52%;
+    --primary-foreground: 22 30% 8%;
+    --primary-light: 22 30% 16%;
+    --primary-glow: 38 60% 60%;
+    --secondary: 38 45% 45%;
+    --secondary-foreground: 35 25% 93%;
+    --muted: 22 18% 15%;
+    --muted-foreground: 30 12% 58%;
+    --accent: 38 55% 50%;
+    --accent-foreground: 22 30% 8%;
+    --destructive: 0 63% 35%;
+    --destructive-foreground: 35 25% 93%;
+    --border: 22 18% 18%;
+    --input: 22 18% 18%;
+    --ring: 38 55% 52%;
+    --sidebar-background: 22 22% 8%;
+    --sidebar-foreground: 35 20% 88%;
+    --sidebar-primary: 38 55% 52%;
+    --sidebar-primary-foreground: 22 30% 8%;
+    --sidebar-accent: 22 15% 14%;
+    --sidebar-accent-foreground: 35 20% 88%;
+    --sidebar-border: 22 15% 16%;
+    --sidebar-ring: 38 55% 52%;
+
+    --shadow-card: 0 1px 3px 0 hsl(0 0% 0% / 0.35);
+    --shadow-elevated: 0 4px 16px -2px hsl(38 55% 52% / 0.1), 0 2px 4px -2px hsl(0 0% 0% / 0.2);
+    --shadow-float: 0 12px 40px -8px hsl(38 55% 52% / 0.18);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+  }
+}
+
+@layer utilities {
+
+  /* ---- brand surfaces ------------------------------------------------ */
+  .brand-surface {
+    background:
+      radial-gradient(1100px 520px at 12% -10%, hsl(var(--secondary) / 0.16), transparent 62%),
+      radial-gradient(900px 460px at 92% 4%, hsl(var(--primary) / 0.14), transparent 60%),
+      hsl(var(--background));
+  }
+  .brand-hero {
+    background:
+      radial-gradient(700px 300px at 85% -30%, hsl(var(--secondary) / 0.30), transparent 60%),
+      linear-gradient(140deg, hsl(var(--brand-deep)) 0%, hsl(var(--primary)) 55%, hsl(var(--primary-glow)) 100%);
+    box-shadow: var(--shadow-brand);
+  }
+  .gold-rule {
+    height: 3px;
+    background: linear-gradient(90deg, transparent, hsl(var(--secondary)), transparent);
+  }
+  .gold-ring {
+    box-shadow: 0 0 0 1px hsl(var(--secondary) / 0.55), 0 0 0 5px hsl(var(--secondary) / 0.12);
+  }
+  .stat-card {
+    @apply rounded-2xl border border-border/60 bg-card p-4;
+    box-shadow: var(--shadow-card);
+    transition: transform .18s ease, box-shadow .18s ease;
+  }
+  .stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-elevated);
+  }
+  .press {
+    transition: transform .12s ease;
+  }
+  .press:active { transform: scale(.97); }
+
+  /* subtle entrance so lists do not pop in abruptly */
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .animate-rise { animation: rise .38s cubic-bezier(.22,.61,.36,1) both; }
+
+  /* scanning ring used on the face check-in screen */
+  @keyframes sweep {
+    0%   { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+  .scan-sweep {
+    background: conic-gradient(from 0deg, transparent 0 72%, hsl(var(--secondary)) 88%, transparent 100%);
+    animation: sweep 1.6s linear infinite;
+  }
+  .glass-card {
+    @apply bg-card/80 backdrop-blur-xl border border-border/50;
+    box-shadow: var(--shadow-card);
+  }
+  .glass-card-elevated {
+    @apply bg-card/90 backdrop-blur-xl border border-border/50;
+    box-shadow: var(--shadow-elevated);
+  }
+  .gradient-primary {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
+  }
+  .gradient-secondary {
+    background: linear-gradient(135deg, hsl(var(--secondary)), hsl(38 60% 65%));
+  }
+  .gradient-hero {
+    background: linear-gradient(145deg, hsl(var(--primary)), hsl(var(--accent)));
+  }
+  .text-gradient-primary {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 16px);
+  }
+  .safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}

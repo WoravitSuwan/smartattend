@@ -1,0 +1,1 @@
+REVOKE ALL ON FUNCTION public.notify_instructor_on_checkin() FROM PUBLIC, anon, authenticated;

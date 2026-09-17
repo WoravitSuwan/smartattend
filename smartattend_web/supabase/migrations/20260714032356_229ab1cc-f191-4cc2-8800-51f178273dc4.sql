@@ -1,0 +1,1 @@
+CREATE POLICY "Students can view their own training runs" ON public.training_runs FOR SELECT TO authenticated USING (auth.uid()::text = student_id::text);
