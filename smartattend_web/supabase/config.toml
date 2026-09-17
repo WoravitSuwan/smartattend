@@ -1,0 +1,25 @@
+project_id = "upucavobjepfbovnupff"
+
+[functions.admin-create-user]
+verify_jwt = true
+
+[functions.admin-delete-user]
+verify_jwt = true
+
+[functions.admin-review-role-request]
+verify_jwt = true
+
+[functions.seed-demo-users]
+verify_jwt = false
+
+[functions.parse-schedule-image]
+verify_jwt = false
+
+[functions.import-course-roster]
+verify_jwt = true
+
+[functions.manual-match-enrollment]
+verify_jwt = true
+
+[functions.start-class-session]
+verify_jwt = true

@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "▶ รัน Pi Agent",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/pi_agent.py",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "▶ รันแบบไม่มีหน้าต่าง (เหมือนบน Pi จริง)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/pi_agent.py",
+      "args": ["--no-display"],
+      "console": "integratedTerminal"
+    }
+  ]
+}

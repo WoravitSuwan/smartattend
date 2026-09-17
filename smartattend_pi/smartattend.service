@@ -1,0 +1,16 @@
+[Unit]
+Description=SmartAttend Raspberry Pi attendance agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/smartattend_pi
+ExecStart=/home/pi/smartattend_pi/.venv/bin/python pi_agent.py --no-display
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
