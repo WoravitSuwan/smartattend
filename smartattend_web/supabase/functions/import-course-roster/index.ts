@@ -5,7 +5,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-interface StudentRow { studentCode: string; studentName: string; }
+interface StudentRow { studentCode: string; studentCodeRaw?: string; studentName: string; }
 
 // Normalize a student code — strip everything except digits, so "67543210014-6"
 // and "675432100146" both normalize to "675432100146".
@@ -80,21 +80,61 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Existing enrollments for this course, keyed by normalized code, so a
+    // re-import can't downgrade a student who already confirmed (or was
+    // already matched) back to pending/unmatched.
+    const { data: existingRows } = await admin
+      .from('course_enrollments')
+      .select('student_code_raw, student_id, status')
+      .eq('course_id', courseId);
+    const existingByCode = new Map<string, { student_id: string | null; status: string }>();
+    for (const row of (existingRows ?? [])) {
+      const n = normalize(row.student_code_raw);
+      if (n) existingByCode.set(n, { student_id: row.student_id, status: row.status });
+    }
+
+    // De-dupe rows within this same import batch first — the same student
+    // can legitimately appear twice in a source file (e.g. cross-listed
+    // sections), and Postgres's ON CONFLICT errors out (or the DB driver
+    // silently drops rows) if a single upsert batch contains the same
+    // conflict key twice.
+    const seenCodes = new Set<string>();
     const importDebug: Array<{ raw: string; normalized: string; matched: boolean }> = [];
-    const enrollmentRows = students.map(s => {
-      const rawCode = String(s.studentCode ?? '').trim();
+    const enrollmentRows: Array<{
+      course_id: string; student_id: string | null;
+      student_code_raw: string; student_name_raw: string; status: string;
+    }> = [];
+    for (const s of students) {
+      // Prefer the true original cell text (studentCodeRaw); studentCode
+      // has already had a trailing "-N" stripped client-side, which used to
+      // get stored as-is here. That meant the SAME student's code could be
+      // stored as "67543210014" from one import and "675432100146" from
+      // another (whichever the source file happened to use that time),
+      // and each variant created its own row on every re-import instead of
+      // updating the existing one — that's the reported "grows every time
+      // I click import" bug. Normalizing to digits-only before storing
+      // makes the dedup key stable regardless of dash formatting.
+      const original = String(s.studentCodeRaw ?? s.studentCode ?? '').trim();
       const name = String(s.studentName ?? '').replace(/\s+/g, ' ').trim();
-      const n = normalize(rawCode);
-      const uid = n ? (normalizedProfileMap.get(n) ?? null) : null;
-      importDebug.push({ raw: rawCode, normalized: n, matched: !!uid });
-      return {
+      const n = normalize(original);
+      if (!n) continue;
+      if (seenCodes.has(n)) continue; // duplicate row within this same file
+      seenCodes.add(n);
+      const uid = normalizedProfileMap.get(n) ?? null;
+      importDebug.push({ raw: original, normalized: n, matched: !!uid });
+
+      // A student's own decision (confirmed / declined) is never overwritten
+      // by a re-import — only 'pending' and 'unmatched' get refreshed.
+      const existing = existingByCode.get(n);
+      const preserveExisting = existing?.status === 'confirmed' || existing?.status === 'declined';
+      enrollmentRows.push({
         course_id: courseId,
-        student_id: uid,
-        student_code_raw: rawCode,
+        student_id: preserveExisting ? existing!.student_id : uid,
+        student_code_raw: n,
         student_name_raw: name,
-        status: uid ? 'pending' : 'unmatched',
-      };
-    }).filter(r => r.student_code_raw);
+        status: preserveExisting ? existing!.status : (uid ? 'pending' : 'unmatched'),
+      });
+    }
 
     const { error: enrollErr } = await admin
       .from('course_enrollments')
@@ -104,9 +144,10 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: enrollErr.message }, 400);
     }
 
-    // Notifications for matched students
+    // Notifications for newly-matched students only — re-notifying someone
+    // who already confirmed on every re-import would be noise, not news.
     const notifRows = enrollmentRows
-      .filter(r => r.student_id)
+      .filter(r => r.status === 'pending')
       .map(r => ({
         user_id: r.student_id!,
         type: 'course_invite',
