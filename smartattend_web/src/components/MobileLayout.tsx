@@ -34,7 +34,7 @@ const instructorTabs = [
 const instructorSidebarExtras = [
   { path: '/instructor/import-roster', icon: Upload, label: 'Import รายชื่อ' },
   { path: '/instructor/roster', icon: Users, label: 'รายชื่อในวิชา' },
-  { path: '/instructor/class-test', icon: Camera, label: 'ทดสอบเช็คชื่อ' },
+  { path: '/instructor/class-test', icon: Camera, label: 'เช็คชื่อเข้าเรียน' },
 ];
 
 const typeIcon: Record<string, string> = {
