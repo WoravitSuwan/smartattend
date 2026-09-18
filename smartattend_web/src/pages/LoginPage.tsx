@@ -22,8 +22,8 @@ const LoginPage = () => {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
 
-  const handleResetRequest = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleResetRequest = async () => {
+    if (resetSending || !resetEmail.trim()) return;
     setResetSending(true);
     const res = await requestPasswordReset(resetEmail || email);
     setResetSending(false);
@@ -145,7 +145,10 @@ const LoginPage = () => {
                   exit={{ opacity: 0, height: 0 }}
                   className="overflow-hidden"
                 >
-                  <form onSubmit={handleResetRequest} className="rounded-2xl bg-muted/50 p-3 space-y-2">
+                  {/* A <form> here would nest inside the login <form> above, which is
+                      invalid HTML — browsers silently drop the inner form so its
+                      onSubmit never fires. Plain div + button onClick instead. */}
+                  <div className="rounded-2xl bg-muted/50 p-3 space-y-2">
                     <p className="text-[11px] text-muted-foreground">
                       กรอกอีเมลที่ใช้สมัคร ระบบจะส่งลิงก์สำหรับตั้งรหัสผ่านใหม่ให้
                     </p>
@@ -153,17 +156,19 @@ const LoginPage = () => {
                       type="email"
                       value={resetEmail}
                       onChange={(e) => setResetEmail(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleResetRequest(); } }}
                       placeholder="you@live.rmutl.ac.th"
                       className="w-full px-3 py-2.5 rounded-xl bg-background border border-border/60 text-foreground placeholder:text-muted-foreground text-xs focus:outline-none focus:ring-2 focus:ring-secondary/50"
                     />
                     <button
-                      type="submit"
+                      type="button"
+                      onClick={handleResetRequest}
                       disabled={resetSending || !resetEmail.trim()}
                       className="w-full py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold disabled:opacity-50"
                     >
                       {resetSending ? 'กำลังส่ง...' : 'ส่งลิงก์ตั้งรหัสผ่านใหม่'}
                     </button>
-                  </form>
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
