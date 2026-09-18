@@ -83,6 +83,39 @@ npx cap open android        # เปิด Android Studio แล้วกด Bui
 > ปีละ 99 ดอลลาร์ แล้วแจกผ่าน TestFlight เท่านั้น — เป็นข้อบังคับของ Apple
 > ดังนั้น **PWA คือทางที่คุ้มที่สุดสำหรับ iOS**
 
+## 1.3 ตั้งค่า Supabase CLI (deploy edge function เองได้จากเครื่อง ไม่ต้อง copy-paste)
+
+โค้ดที่อยู่ในโฟลเดอร์ `smartattend_web/supabase/functions/` (เช่น `import-course-roster`,
+`start-class-session`) รันอยู่บน Supabase โดยตรง **ไม่ได้ deploy อัตโนมัติตอน push ขึ้น GitHub**
+ต้องสั่ง deploy แยกทุกครั้งที่แก้โค้ดฝั่งนี้ ทำครั้งแรกครั้งเดียวตามนี้ แล้วครั้งต่อ ๆ ไปเหลือแค่คำสั่งเดียว
+
+```bash
+cd smartattend_web
+
+# 1) ติดตั้ง Supabase CLI (ทำครั้งเดียวต่อเครื่อง)
+npm install -g supabase
+
+# 2) ล็อกอินด้วยบัญชี Supabase ของคุณ — จะเปิดเบราว์เซอร์ให้กดยืนยัน
+supabase login
+
+# 3) เชื่อมโฟลเดอร์นี้เข้ากับโปรเจกต์ Supabase จริง (project ref ดูได้จาก
+#    Supabase Dashboard > Project Settings > General > Reference ID
+#    หรือจากค่า VITE_SUPABASE_PROJECT_ID ในไฟล์ .env)
+supabase link --project-ref grxjnfdngugtuyhkinaj
+```
+
+จากนั้นทุกครั้งที่แก้โค้ดใน `supabase/functions/<ชื่อฟังก์ชัน>/index.ts` ให้ deploy ด้วยคำสั่งเดียว:
+
+```bash
+supabase functions deploy <ชื่อฟังก์ชัน>
+# เช่น
+supabase functions deploy import-course-roster
+supabase functions deploy start-class-session
+```
+
+> ไม่ต้อง copy โค้ดไปวางใน Dashboard อีกต่อไป — คำสั่งนี้อ่านไฟล์จากเครื่องแล้วอัปโหลดให้เลย
+> ถ้าแก้ฐานข้อมูล (ไฟล์ใน `supabase/migrations/`) ก็ใช้ `supabase db push` ในลักษณะเดียวกัน
+
 ---
 
 # ส่วนที่ 2 — โปรแกรม Python บน Raspberry Pi
