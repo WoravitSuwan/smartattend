@@ -48,6 +48,15 @@ npm run build      # สร้างไฟล์สำหรับใช้ง�
 
 จะได้ลิงก์เช่น `https://smartattend.vercel.app` — **นี่คือลิงก์ดาวน์โหลดแอปของคุณ**
 
+> **ก่อน deploy ต้องตั้งค่า Environment Variables บนแพลตฟอร์มที่เลือกด้วย**
+> (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_SUPABASE_PROJECT_ID` — ดูค่าได้จาก `.env`)
+> ไม่งั้นแอปที่ deploy แล้วจะเชื่อม Supabase ไม่ได้
+>
+> ไฟล์ `vercel.json` และ `public/_redirects` เตรียมไว้ให้แล้วในโปรเจกต์ ทำให้
+> เส้นทางในแอป (เช่น `/student/history`) ใช้งานได้ปกติแม้ผู้ใช้รีเฟรชหน้าตรง ๆ
+> หรือเปิดลิงก์นั้นมาจากที่อื่น — ไม่ต้องตั้งค่า rewrite เพิ่มเองทั้งบน Vercel และ
+> Netlify/Cloudflare Pages
+
 ### วิธีที่ผู้ใช้ติดตั้ง
 
 **Android** — เปิดลิงก์ใน Chrome จะมีแถบ "ติดตั้งเป็นแอป" เด้งขึ้นมา กดติดตั้งได้เลย

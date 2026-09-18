@@ -53,9 +53,12 @@ const InstallAppBanner = () => {
     }
     if (!deferred) return;
     await deferred.prompt();
-    const { outcome } = await deferred.userChoice;
-    if (outcome === 'accepted') setVisible(false);
+    // The native prompt can only be used once — whatever the outcome, this
+    // banner has nothing left to offer, so hide it instead of leaving a
+    // button that silently does nothing on a second tap.
+    await deferred.userChoice;
     setDeferred(null);
+    setVisible(false);
   };
 
   if (!visible) return null;
