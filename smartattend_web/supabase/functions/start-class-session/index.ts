@@ -97,9 +97,12 @@ Deno.serve(async (req) => {
         user_id: sid,
         type: 'class_started',
         title: 'คลาสเริ่มแล้ว',
-        body: `กดเพื่อเข้าคลาส ${course.code} ${course.name} ตอนนี้`,
+        // Informational only — attendance is taken at the classroom Pi
+        // camera, not from the student's own device, so there is nothing
+        // to tap through to here.
+        body: `${course.code} ${course.name} เปิดคาบแล้ว ไปสแกนใบหน้าที่กล้องหน้าห้องเรียนได้เลย`,
         related_id: sess.id,
-        action_required: true,
+        action_required: false,
         status: 'unread',
       }));
       const { error: notifErr, count } = await admin

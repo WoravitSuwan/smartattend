@@ -83,7 +83,6 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
 
   const renderNotificationCard = (n: typeof myNotifications[number], i: number, useMotion: boolean) => {
     const isInvite = n.type === 'course_invite' && n.actionRequired && n.status !== 'actioned';
-    const isClassStarted = n.type === 'class_started' && n.actionRequired && n.status !== 'actioned' && !!n.relatedId;
     const isCheckedIn = n.type === 'student_checked_in' && !!n.relatedId;
     const meta = n.relatedId ? courseInvites[n.relatedId] : undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -126,7 +125,7 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
               navigate(`/instructor/attendance?session=${n.relatedId}`);
               return;
             }
-            if (!isInvite && !isClassStarted && n.link) { navigate(n.link); setShowNotifications(false); }
+            if (!isInvite && n.link) { navigate(n.link); setShowNotifications(false); }
           }}
           className="w-full text-left flex gap-3 items-start hover:opacity-90 pr-8"
         >
@@ -158,20 +157,6 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
               className="flex-1 px-3 py-1.5 rounded-lg bg-muted text-foreground text-[11px] font-semibold hover:bg-muted/70"
             >
               ปฏิเสธ
-            </button>
-          </div>
-        )}
-        {isClassStarted && (
-          <div className="mt-2 pl-8">
-            <button
-              onClick={() => {
-                markAsRead(n.id);
-                setShowNotifications(false);
-                navigate(`/student/scan-checkin/${n.relatedId}`);
-              }}
-              className="w-full px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-[11px] font-semibold hover:opacity-90"
-            >
-              เข้าคลาส
             </button>
           </div>
         )}

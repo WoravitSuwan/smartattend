@@ -51,7 +51,6 @@ export default function MyStatusPage() {
   const [thumbs, setThumbs] = useState<FaceThumb[]>([]);
   const [regStatus, setRegStatus] = useState<RegistrationStatus | null>(null);
   const [records, setRecords] = useState<AttendanceRow[]>([]);
-  const [courseFilter, setCourseFilter] = useState<string>('all');
   const [zoom, setZoom] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
 
@@ -67,9 +66,12 @@ export default function MyStatusPage() {
           .order('captured_at', { ascending: true }).limit(8),
         fetchMyRegStatus(user.id).catch(() => null),
         supabase.from('attendance_records')
-          .select('id, checked_in_at, status, confidence, photo_data_url, session_id, class_sessions:session_id(course_id, courses:course_id(code, name))')
+          // !inner + ordering by the referenced table's started_at (never
+          // null, unlike checked_in_at which is null for absences) so
+          // absent rows don't jump to the top of a descending sort.
+          .select('id, checked_in_at, status, confidence, photo_data_url, session_id, class_sessions:session_id!inner(course_id, courses:course_id(code, name))')
           .eq('student_id', user.id)
-          .order('checked_in_at', { ascending: false }),
+          .order('started_at', { referencedTable: 'class_sessions', ascending: false }),
       ]);
 
       setFaceCount(countRes.count ?? 0);
@@ -100,24 +102,15 @@ export default function MyStatusPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const courses = useMemo(() => {
-    const m = new Map<string, string>();
-    records.forEach(r => m.set(r.courseId, r.courseCode));
-    return Array.from(m, ([id, code]) => ({ id, code }));
-  }, [records]);
-
-  const filtered = useMemo(
-    () => (courseFilter === 'all' ? records : records.filter(r => r.courseId === courseFilter)),
-    [records, courseFilter],
-  );
+  const recentRecords = useMemo(() => records.slice(0, 5), [records]);
 
   const stats = useMemo(() => {
-    const onTime = filtered.filter(r => r.status === 'on_time').length;
-    const late = filtered.filter(r => r.status === 'late').length;
-    const absent = filtered.filter(r => r.status === 'absent').length;
+    const onTime = records.filter(r => r.status === 'on_time').length;
+    const late = records.filter(r => r.status === 'late').length;
+    const absent = records.filter(r => r.status === 'absent').length;
     const total = onTime + late + absent;
     return { onTime, late, absent, total, pct: total ? Math.round(((onTime + late) / total) * 100) : 0 };
-  }, [filtered]);
+  }, [records]);
 
   const handleReRegister = async () => {
     if (!user?.id) return;
@@ -235,9 +228,14 @@ export default function MyStatusPage() {
               )}
             </section>
 
-            {/* ── ส่วน ข) ประวัติการเข้าเรียน ── */}
+            {/* ── ส่วน ข) ประวัติการเข้าเรียน (สรุปย่อ — ดูทั้งหมดที่หน้าประวัติ) ── */}
             <section className="space-y-3">
-              <h2 className="text-sm font-bold text-foreground">ประวัติการเข้าเรียนของฉัน</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold text-foreground">ประวัติการเข้าเรียนของฉัน</h2>
+                <button onClick={() => navigate('/student/history')} className="text-xs text-primary font-medium">
+                  ดูทั้งหมด
+                </button>
+              </div>
 
               <div className="grid grid-cols-4 gap-2">
                 {[
@@ -253,78 +251,33 @@ export default function MyStatusPage() {
                 ))}
               </div>
 
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                <button
-                  onClick={() => setCourseFilter('all')}
-                  className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-medium border ${
-                    courseFilter === 'all' ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-muted-foreground border-border'
-                  }`}
-                >
-                  ทุกวิชา
-                </button>
-                {courses.map(c => (
-                  <button
-                    key={c.id}
-                    onClick={() => setCourseFilter(c.id)}
-                    className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-medium border ${
-                      courseFilter === c.id ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-muted-foreground border-border'
-                    }`}
-                  >
-                    {c.code}
-                  </button>
-                ))}
-              </div>
-
-              {filtered.length === 0 ? (
+              {recentRecords.length === 0 ? (
                 <div className="bg-card rounded-2xl border border-border py-10 text-center">
                   <p className="text-sm text-muted-foreground">ยังไม่มีประวัติการเข้าเรียน</p>
                 </div>
               ) : (
-                <div className="bg-card rounded-2xl border border-border overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-muted/60 text-muted-foreground">
-                        <tr>
-                          <th className="px-3 py-2 font-medium whitespace-nowrap">วันที่-เวลา</th>
-                          <th className="px-3 py-2 font-medium whitespace-nowrap">รหัสวิชา</th>
-                          <th className="px-3 py-2 font-medium whitespace-nowrap">สถานะ</th>
-                          <th className="px-3 py-2 font-medium whitespace-nowrap">ความเชื่อมั่น</th>
-                          <th className="px-3 py-2 font-medium whitespace-nowrap">หลักฐาน</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filtered.map(r => {
-                          const meta = STATUS_META[r.status ?? ''] ?? { label: r.status ?? '-', cls: 'bg-muted text-muted-foreground border-border' };
-                          return (
-                            <tr key={r.id} className="border-t border-border/60">
-                              <td className="px-3 py-2 whitespace-nowrap text-foreground tabular-nums">{fmt(r.checkedInAt)}</td>
-                              <td className="px-3 py-2 whitespace-nowrap">
-                                <span className="text-foreground font-medium">{r.courseCode}</span>
-                                <span className="block text-[10px] text-muted-foreground truncate max-w-[10rem]">{r.courseName}</span>
-                              </td>
-                              <td className="px-3 py-2 whitespace-nowrap">
-                                <span className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${meta.cls}`}>
-                                  {meta.label}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2 whitespace-nowrap tabular-nums text-muted-foreground">
-                                {r.confidence != null ? `${(Number(r.confidence) * 100).toFixed(1)}%` : '-'}
-                              </td>
-                              <td className="px-3 py-2">
-                                {r.photo ? (
-                                  <button onClick={() => setZoom(r.photo)}>
-                                    <img src={r.photo} alt="evidence" className="w-10 h-10 rounded-md object-cover border border-border" />
-                                  </button>
-                                ) : (
-                                  <span className="text-muted-foreground">-</span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                <div className="space-y-2">
+                  {recentRecords.map(r => {
+                    const meta = STATUS_META[r.status ?? ''] ?? { label: r.status ?? '-', cls: 'bg-muted text-muted-foreground border-border' };
+                    return (
+                      <div key={r.id} className="bg-card rounded-xl border border-border p-3 flex items-center gap-3">
+                        {r.photo ? (
+                          <button onClick={() => setZoom(r.photo)} className="w-10 h-10 rounded-lg overflow-hidden border border-border shrink-0">
+                            <img src={r.photo} alt="หลักฐานการเช็คชื่อ" className="w-full h-full object-cover" />
+                          </button>
+                        ) : (
+                          <div className="w-10 h-10 rounded-lg bg-muted shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-foreground truncate">{r.courseCode} · {r.courseName}</p>
+                          <p className="text-[11px] text-muted-foreground tabular-nums">{fmt(r.checkedInAt)}</p>
+                        </div>
+                        <span className={`shrink-0 px-2 py-0.5 rounded-full border text-[10px] font-semibold ${meta.cls}`}>
+                          {meta.label}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </section>

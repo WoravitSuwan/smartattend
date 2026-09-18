@@ -57,11 +57,15 @@ function mapRow(r: any): AttendanceRow {
 }
 
 export async function fetchMyAttendance(studentId: string): Promise<AttendanceRow[]> {
+  // Order by the class session's date, not checked_in_at: an absent row has
+  // no check-in time at all, and Postgres sorts NULLs first on a DESC order
+  // by default — every absence would otherwise float to the top of the
+  // list ahead of real, recent check-ins.
   const { data, error } = await (supabase as any)
     .from('attendance_records')
     .select(SELECT)
     .eq('student_id', studentId)
-    .order('checked_in_at', { ascending: false });
+    .order('started_at', { referencedTable: 'class_sessions', ascending: false });
   if (error) { console.error('fetchMyAttendance', error); return []; }
   return (data ?? []).map(mapRow);
 }
@@ -95,11 +99,16 @@ export async function fetchInstructorCourses(instructorId: string) {
   return data ?? [];
 }
 
+/** Courses the student is actually part of — confirmed only. A pending
+ * invite or a declined/unmatched row must not show up as "my course"
+ * anywhere (dashboard widgets, open-session checks, etc.); those live in
+ * their own "รอการยืนยัน" section on the courses page until confirmed. */
 export async function fetchEnrolledCourses(studentId: string) {
   const { data, error } = await (supabase as any)
     .from('course_enrollments')
     .select('status, courses!inner ( id, code, name, section, semester )')
-    .eq('student_id', studentId);
+    .eq('student_id', studentId)
+    .eq('status', 'confirmed');
   if (error) { console.error('fetchEnrolledCourses', error); return []; }
   return (data ?? []).map((r: any) => ({ ...r.courses, enrollStatus: r.status }));
 }

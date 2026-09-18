@@ -77,10 +77,9 @@ const StudentDashboard = () => {
                 {openSession ? `มีคาบเรียนเปิดอยู่ ${openSession.code}` : 'ไม่มีคาบเรียน'}
               </p>
               {openSession && (
-                <button onClick={() => navigate(`/student/scan-checkin/${openSession.id}`)}
-                  className="mt-3 px-4 py-2 rounded-xl bg-primary-foreground/20 text-primary-foreground text-xs font-semibold">
-                  เข้าคาบเรียน
-                </button>
+                <p className="mt-3 px-4 py-2 rounded-xl bg-primary-foreground/20 text-primary-foreground text-xs font-semibold w-fit">
+                  ไปสแกนใบหน้าที่กล้องหน้าห้องเรียนได้เลย
+                </p>
               )}
             </div>
             <div className="w-14 h-14 rounded-full bg-primary-foreground/20 flex items-center justify-center shrink-0">

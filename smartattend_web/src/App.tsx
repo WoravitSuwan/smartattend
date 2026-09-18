@@ -45,7 +45,6 @@ import FaceRegistrationStatusPage from "./pages/instructor/FaceRegistrationStatu
 import ImportRosterPage from "./pages/instructor/ImportRosterPage";
 import CourseRosterPage from "./pages/instructor/CourseRosterPage";
 import StartClassTestPage from "./pages/instructor/StartClassTestPage";
-import ScanCheckInTestPage from "./pages/student/ScanCheckInTestPage";
 import NotFound from "./pages/NotFound";
 import AdminLayout from "./components/AdminLayout";
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -179,7 +178,6 @@ function AppRoutes() {
       <Route path="/instructor/roster" element={<ProtectedRoute role="instructor"><CourseRosterPage /></ProtectedRoute>} />
       <Route path="/instructor/profile" element={<ProtectedRoute role="instructor"><ProfilePage /></ProtectedRoute>} />
       <Route path="/instructor/class-test" element={<ProtectedRoute role="instructor"><StartClassTestPage /></ProtectedRoute>} />
-      <Route path="/student/scan-checkin/:sessionId" element={<ProtectedRoute role="student"><StudentGate><ScanCheckInTestPage /></StudentGate></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

@@ -46,6 +46,26 @@ const AttendanceHistoryPage = () => {
     return true;
   }), [rows, course, from, to]);
 
+  // Group into day sections (rows already arrive newest-first) so a
+  // semester's worth of records reads as a scannable timeline instead of
+  // one long flat list.
+  const groups = useMemo(() => {
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const yesterdayKey = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const dayLabel = (key: string) => {
+      if (key === todayKey) return 'วันนี้';
+      if (key === yesterdayKey) return 'เมื่อวาน';
+      return new Date(key).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+    };
+    const byDay = new Map<string, typeof filtered>();
+    for (const r of filtered) {
+      const key = (r.checkedInAt ?? r.startedAt ?? '').slice(0, 10) || 'ไม่ทราบวันที่';
+      if (!byDay.has(key)) byDay.set(key, []);
+      byDay.get(key)!.push(r);
+    }
+    return Array.from(byDay, ([key, dayRows]) => ({ key, label: dayLabel(key), rows: dayRows }));
+  }, [filtered]);
+
   const stat = useMemo(() => {
     const src = course === 'all' ? summary : summary.filter(s => s.course_id === course);
     const onTime = src.reduce((a, b) => a + Number(b.on_time_count), 0);
@@ -98,35 +118,44 @@ const AttendanceHistoryPage = () => {
           <p className="text-xs text-muted-foreground text-center py-8">ยังไม่มีประวัติการเข้าเรียน</p>
         )}
 
-        <div className="space-y-2">
-          {filtered.map((r, i) => (
-            <motion.div key={r.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 12) * 0.03 }}
-              className="bg-card rounded-xl p-3 flex items-center gap-3 shadow-card">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${statusClass[r.status]}`}>
-                {r.status === 'on_time' ? <CheckCircle className="w-4 h-4" /> : r.status === 'late' ? <Clock className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+        <div className="space-y-4">
+          {groups.map((g, gi) => (
+            <div key={g.key}>
+              <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-0.5">
+                {g.label}
+              </h3>
+              <div className="space-y-2">
+                {g.rows.map((r, i) => (
+                  <motion.div key={r.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(gi * 3 + i, 12) * 0.03 }}
+                    className="bg-card rounded-xl p-3 flex items-center gap-3 shadow-card">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${statusClass[r.status]}`}>
+                      {r.status === 'on_time' ? <CheckCircle className="w-4 h-4" /> : r.status === 'late' ? <Clock className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{r.courseCode} - {r.courseName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {fmtDateTime(r.checkedInAt ?? r.startedAt)}
+                        {r.confidence != null ? ` · ${Math.round(Number(r.confidence) * 100)}%` : ''}
+                      </p>
+                      {r.editedAt && (
+                        <p className="text-[10px] text-warning flex items-center gap-1 mt-0.5" title={`แก้ไขโดยอาจารย์: ${r.editReason ?? '-'}`}>
+                          <Pencil className="w-3 h-3" /> ถูกแก้ไข: {r.editReason ?? '-'}
+                        </p>
+                      )}
+                    </div>
+                    {r.photo && (
+                      <button onClick={() => setZoom(r.photo)} className="w-9 h-9 rounded-lg overflow-hidden border border-border shrink-0">
+                        <img src={r.photo} alt="หลักฐานการเช็คชื่อ" className="w-full h-full object-cover" />
+                      </button>
+                    )}
+                    {!r.photo && <ImageIcon className="w-4 h-4 text-muted-foreground/40 shrink-0" />}
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${statusClass[r.status]}`}>
+                      {statusLabel[r.status]}
+                    </span>
+                  </motion.div>
+                ))}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">{r.courseCode} - {r.courseName}</p>
-                <p className="text-xs text-muted-foreground">
-                  {fmtDateTime(r.checkedInAt ?? r.startedAt)}
-                  {r.confidence != null ? ` · ${Math.round(Number(r.confidence) * 100)}%` : ''}
-                </p>
-                {r.editedAt && (
-                  <p className="text-[10px] text-warning flex items-center gap-1 mt-0.5" title={`แก้ไขโดยอาจารย์: ${r.editReason ?? '-'}`}>
-                    <Pencil className="w-3 h-3" /> ถูกแก้ไข: {r.editReason ?? '-'}
-                  </p>
-                )}
-              </div>
-              {r.photo && (
-                <button onClick={() => setZoom(r.photo)} className="w-9 h-9 rounded-lg overflow-hidden border border-border shrink-0">
-                  <img src={r.photo} alt="หลักฐานการเช็คชื่อ" className="w-full h-full object-cover" />
-                </button>
-              )}
-              {!r.photo && <ImageIcon className="w-4 h-4 text-muted-foreground/40 shrink-0" />}
-              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${statusClass[r.status]}`}>
-                {statusLabel[r.status]}
-              </span>
-            </motion.div>
+            </div>
           ))}
         </div>
       </div>

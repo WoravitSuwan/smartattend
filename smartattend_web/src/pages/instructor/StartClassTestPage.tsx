@@ -214,7 +214,7 @@ export default function StartClassTestPage() {
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            นักศึกษาสแกนใบหน้าด้วยกล้องมือถือ/เว็บของตนเอง ใช้คู่กับหรือแทนกล้อง Raspberry Pi หน้าห้องได้
+            เปิดคาบเรียนแล้วให้นักศึกษาไปสแกนใบหน้าที่กล้อง Raspberry Pi หน้าห้องเรียนเท่านั้น
           </p>
           <select
             value={selectedCourse}
