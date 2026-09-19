@@ -42,6 +42,7 @@ export default function CourseRosterPage() {
   const [selectedSemester, setSelectedSemester] = useState<string>('');
   const [selectedId, setSelectedId] = useState<string>('');
   const [rows, setRows] = useState<Enrollment[]>([]);
+  const [phoneByStudent, setPhoneByStudent] = useState<Record<string, string | null>>({});
   const [loading, setLoading] = useState(true);
 
   const [matchOpen, setMatchOpen] = useState<Enrollment | null>(null);
@@ -102,7 +103,19 @@ export default function CourseRosterPage() {
         .select('id, course_id, student_id, student_code_raw, student_name_raw, status, confirmed_at')
         .eq('course_id', selectedId)
         .order('student_code_raw', { ascending: true });
-      if (alive && data) setRows(data as Enrollment[]);
+      if (!alive || !data) return;
+      setRows(data as Enrollment[]);
+
+      // Phone numbers live on profiles, not the enrollment snapshot — RLS
+      // only lets an instructor read profiles of students confirmed into
+      // one of their own courses, which is exactly this list.
+      const studentIds = (data as Enrollment[]).map(r => r.student_id).filter((id): id is string => !!id);
+      if (studentIds.length) {
+        const { data: profs } = await supabase.from('profiles').select('user_id, phone').in('user_id', studentIds);
+        if (alive) setPhoneByStudent(Object.fromEntries((profs ?? []).map(p => [p.user_id, p.phone])));
+      } else if (alive) {
+        setPhoneByStudent({});
+      }
     };
     load();
     const channel = supabase
@@ -238,13 +251,14 @@ export default function CourseRosterPage() {
                       <th className="px-3 py-2 font-medium w-10">#</th>
                       <th className="px-3 py-2 font-medium">รหัสนักศึกษา</th>
                       <th className="px-3 py-2 font-medium">ชื่อ</th>
+                      <th className="px-3 py-2 font-medium">เบอร์โทร</th>
                       <th className="px-3 py-2 font-medium">สถานะ</th>
                       {!isAdminView && <th className="px-3 py-2 font-medium text-right">จัดการ</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {rows.length === 0 ? (
-                      <tr><td colSpan={5} className="px-3 py-10 text-center text-muted-foreground">ยังไม่มีนักศึกษาในวิชานี้</td></tr>
+                      <tr><td colSpan={isAdminView ? 5 : 6} className="px-3 py-10 text-center text-muted-foreground">ยังไม่มีนักศึกษาในวิชานี้</td></tr>
                     ) : rows.map((r, i) => {
                       const s = statusStyle[r.status];
                       const Icon = s.icon;
@@ -253,6 +267,9 @@ export default function CourseRosterPage() {
                           <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
                           <td className="px-3 py-2 font-mono text-foreground">{r.student_code_raw}</td>
                           <td className="px-3 py-2 text-foreground">{r.student_name_raw}</td>
+                          <td className="px-3 py-2 text-muted-foreground font-mono">
+                            {r.student_id ? (phoneByStudent[r.student_id] ?? '-') : '-'}
+                          </td>
                           <td className="px-3 py-2">
                             <span className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border ${s.cls}`}>
                               <Icon className="w-3 h-3" /> {s.label}

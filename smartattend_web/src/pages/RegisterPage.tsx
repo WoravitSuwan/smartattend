@@ -10,6 +10,7 @@ import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/integrations/supabase/client';
 import { upsertMyRegStatus } from '@/lib/registration-status';
 import { augmentImage, normalizeOriginal } from '@/lib/dataset-store';
+import { validateThaiFullName } from '@/lib/thai-name';
 
 const AUGMENT_PER_POSE = 9; // 1 original + 9 augmented = 10 per pose → 50 total
 
@@ -131,7 +132,8 @@ const RegisterPage = () => {
 
   /* ── Form validation ── */
   const validateForm = (): boolean => {
-    if (!name.trim()) { setFormError('กรุณากรอกชื่อ-นามสกุล'); return false; }
+    const nameError = validateThaiFullName(name);
+    if (nameError) { setFormError(nameError); return false; }
     if (mode === 'student') {
       if (!isValidStudentId(studentId)) { setFormError('กรุณากรอกรหัสนักศึกษาให้ถูกต้อง (9–13 หลัก ใส่ขีดหรือไม่ใส่ก็ได้)'); return false; }
     } else {
@@ -370,10 +372,10 @@ const RegisterPage = () => {
 
                 <div className="bg-card rounded-2xl p-4 space-y-2.5 shadow-elevated">
                   <div>
-                    <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5 block">ชื่อ-นามสกุล</label>
+                    <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5 block">ชื่อ-นามสกุล (ภาษาไทย พร้อมคำนำหน้า)</label>
                     <div className="flex items-center gap-2 bg-muted rounded-xl px-3 py-2">
                       <User className="w-4 h-4 text-primary flex-shrink-0" />
-                      <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="สมชาย ใจดี"
+                      <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="นายสมชาย ใจดี"
                         className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground" maxLength={100} />
                     </div>
                   </div>

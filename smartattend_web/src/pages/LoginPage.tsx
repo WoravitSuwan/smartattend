@@ -93,13 +93,13 @@ const LoginPage = () => {
           <div className="glass-card-elevated rounded-3xl p-6 space-y-4">
             <div>
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 block">
-                อีเมล / รหัสนักศึกษา
+                อีเมล หรือชื่อผู้ใช้
               </label>
               <input
                 type="text"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@live.rmutl.ac.th"
+                placeholder="you หรือ you@live.rmutl.ac.th"
                 className="w-full px-4 py-3.5 rounded-2xl bg-muted/70 border border-border/60 text-foreground placeholder:text-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary/50 transition-all"
                 maxLength={255}
               />

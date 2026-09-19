@@ -5,6 +5,7 @@ import { User, Mail, GraduationCap, Building2, Key, LogOut, ChevronRight, Camera
 import { useNavigate } from 'react-router-dom';
 
 import { toast } from 'sonner';
+import { validateThaiFullName } from '@/lib/thai-name';
 
 const FACULTIES = [
   'คณะวิศวกรรมศาสตร์',
@@ -55,8 +56,9 @@ const ProfilePage = () => {
       toast.error('เบอร์โทรศัพท์ไม่ถูกต้อง');
       return;
     }
-    if (!name.trim()) {
-      toast.error('กรุณากรอกชื่อ');
+    const nameError = validateThaiFullName(name);
+    if (nameError) {
+      toast.error(nameError);
       return;
     }
     // Strip every non-digit character before validating/saving the student code.

@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { BookOpen, Users, TrendingUp, AlertTriangle, ClipboardList, GraduationCap, FileText, PlusCircle, CalendarOff, ScanFace, Radio } from 'lucide-react';
+import { BookOpen, Users, TrendingUp, AlertTriangle, ClipboardList, GraduationCap, FileText, PlusCircle, CalendarOff, ScanFace, Radio, PlayCircle } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import MobileLayout from '@/components/MobileLayout';
 import { useNavigate } from 'react-router-dom';
@@ -174,6 +174,7 @@ const InstructorDashboard = () => {
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">ทางลัด</h2>
           <div className="grid grid-cols-2 gap-3">
             {[
+              { label: 'เปิดคลาส', icon: PlayCircle, path: '/instructor/class-test' },
               { label: 'เช็คชื่อ', icon: ClipboardList, path: '/instructor/attendance' },
               { label: 'รายงาน', icon: FileText, path: '/instructor/reports' },
               { label: 'สร้างงาน', icon: PlusCircle, path: '/instructor/assignments' },

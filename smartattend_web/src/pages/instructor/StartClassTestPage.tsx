@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import MobileLayout from '@/components/MobileLayout';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth-context';
-import { Loader2, PlayCircle, StopCircle, Users, Clock, AlarmClock } from 'lucide-react';
+import { Loader2, PlayCircle, StopCircle, Users, Clock, AlarmClock, Ban } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Course { id: string; code: string; name: string; section: string | null; }
@@ -54,6 +54,9 @@ export default function StartClassTestPage() {
   const [loading, setLoading] = useState(false);
   const [lateAfter, setLateAfter] = useState<number>(15);
   const [durationMin, setDurationMin] = useState<number>(60);
+  const [showCancelReason, setShowCancelReason] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelling, setCancelling] = useState(false);
   const now = useNow(1000);
 
   useEffect(() => {
@@ -131,6 +134,26 @@ export default function StartClassTestPage() {
       const err = e as { message?: string };
       toast.error(err.message ?? 'ไม่สามารถเริ่มคลาสได้');
     } finally { setLoading(false); }
+  };
+
+  const cancelClass = async () => {
+    if (!selectedCourse) return;
+    const course = courses.find(c => c.id === selectedCourse);
+    if (!window.confirm(`ยืนยันยกเลิกคลาส ${course?.code ?? ''} วันนี้? นักศึกษาที่ยืนยันเข้าร่วมทุกคนจะได้รับแจ้งเตือน`)) return;
+    setCancelling(true);
+    try {
+      const { data, error } = await supabase.rpc('cancel_class_announcement', {
+        _course_id: selectedCourse,
+        _reason: cancelReason.trim() || undefined,
+      });
+      if (error) throw error;
+      toast.success(`ยกเลิกคลาสแล้ว — แจ้งนักศึกษา ${data ?? 0} คน`);
+      setCancelReason('');
+      setShowCancelReason(false);
+    } catch (e) {
+      const err = e as { message?: string };
+      toast.error(err.message ?? 'ยกเลิกคลาสไม่สำเร็จ');
+    } finally { setCancelling(false); }
   };
 
   const closeClass = async () => {
@@ -256,14 +279,57 @@ export default function StartClassTestPage() {
           )}
 
           {!activeSession ? (
-            <button
-              onClick={startClass}
-              disabled={loading || !selectedCourse}
-              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold disabled:opacity-50"
-            >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
-              เริ่มคลาส
-            </button>
+            <>
+              <button
+                onClick={startClass}
+                disabled={loading || !selectedCourse}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+                เริ่มคลาส
+              </button>
+
+              {!showCancelReason ? (
+                <button
+                  onClick={() => setShowCancelReason(true)}
+                  disabled={!selectedCourse}
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-destructive/40 text-destructive text-xs font-semibold disabled:opacity-50"
+                >
+                  <Ban className="w-3.5 h-3.5" /> ยกเลิกคลาสวันนี้
+                </button>
+              ) : (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-2">
+                  <p className="text-[11px] text-muted-foreground">
+                    แจ้งนักศึกษาที่ยืนยันเข้าร่วมวิชานี้ทุกคนว่าวันนี้งดการเรียนการสอน
+                  </p>
+                  <input
+                    type="text"
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder="เหตุผล (ไม่บังคับ) เช่น อาจารย์ติดธุระ"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-xs"
+                    maxLength={200}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={cancelClass}
+                      disabled={cancelling}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-destructive text-destructive-foreground text-xs font-semibold disabled:opacity-50"
+                    >
+                      {cancelling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}
+                      ยืนยันยกเลิกคลาส
+                    </button>
+                    <button
+                      onClick={() => { setShowCancelReason(false); setCancelReason(''); }}
+                      disabled={cancelling}
+                      className="px-3 py-2 rounded-lg bg-muted text-foreground text-xs font-medium disabled:opacity-50"
+                    >
+                      ปิด
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <>
               <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5 text-xs">

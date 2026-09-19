@@ -125,10 +125,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     const input = email.trim();
-    if (!input.includes('@')) {
-      return { success: false, error: 'กรุณาเข้าสู่ระบบด้วยอีเมลของมหาวิทยาลัย' };
+    if (!input) {
+      return { success: false, error: 'กรุณากรอกอีเมลหรือชื่อผู้ใช้' };
     }
-    const resolvedEmail = input.toLowerCase();
+
+    let resolvedEmail = input.toLowerCase();
+    if (!resolvedEmail.includes('@')) {
+      // Just the part before "@" — try both institutional domains
+      // (rmutl.ac.th / live.rmutl.ac.th) via the DB instead of guessing
+      // client-side, since only one of them is actually registered.
+      const { data: resolved } = await supabase.rpc('resolve_login_email', { _input: resolvedEmail });
+      if (!resolved) {
+        return { success: false, error: 'ไม่พบบัญชีนี้ กรุณาตรวจสอบชื่อผู้ใช้ หรือกรอกอีเมลแบบเต็ม' };
+      }
+      resolvedEmail = String(resolved).toLowerCase();
+    }
 
     const { error } = await supabase.auth.signInWithPassword({ email: resolvedEmail, password });
     if (error) {

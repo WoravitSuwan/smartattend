@@ -44,6 +44,7 @@ const typeIcon: Record<string, string> = {
   deadline_approaching: '⏰',
   course_invite: '🎓',
   class_started: '📷',
+  class_cancelled: '🚫',
   student_checked_in: '✅',
   leave_submitted: '📄',
   leave_approved: '✅',

@@ -862,6 +862,11 @@ export type Database = {
     }
     Functions: {
       can_use_face_model: { Args: { _user_id: string }; Returns: boolean }
+      cancel_class_announcement: {
+        Args: { _course_id: string; _reason?: string }
+        Returns: number
+      }
+      resolve_login_email: { Args: { _input: string }; Returns: string }
       check_in_attendance: {
         Args: {
           _confidence: number
