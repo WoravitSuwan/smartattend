@@ -32,7 +32,6 @@ import InstructorGradingPage from "./pages/instructor/InstructorGradingPage";
 import GradeManagementPage from "./pages/instructor/GradeManagementPage";
 import InstructorReportsPage from "./pages/instructor/InstructorReportsPage";
 import ExportScoresPage from "./pages/instructor/ExportScoresPage";
-import ClassManagementPage from "./pages/instructor/ClassManagementPage";
 import StudentAssignmentsPage from "./pages/student/StudentAssignmentsPage";
 import StudentLeavePage from "./pages/student/StudentLeavePage";
 import FaceRegistrationPage from "./pages/student/FaceRegistrationPage";
@@ -171,7 +170,6 @@ function AppRoutes() {
       <Route path="/instructor/grades" element={<ProtectedRoute role="instructor"><GradeManagementPage /></ProtectedRoute>} />
       <Route path="/instructor/reports" element={<ProtectedRoute role="instructor"><InstructorReportsPage /></ProtectedRoute>} />
       <Route path="/instructor/export" element={<ProtectedRoute role="instructor"><ExportScoresPage /></ProtectedRoute>} />
-      <Route path="/instructor/class" element={<ProtectedRoute role="instructor"><ClassManagementPage /></ProtectedRoute>} />
       <Route path="/instructor/leaves" element={<ProtectedRoute role="instructor"><InstructorLeavesPage /></ProtectedRoute>} />
       <Route path="/instructor/face-status" element={<ProtectedRoute role="instructor"><FaceRegistrationStatusPage /></ProtectedRoute>} />
       <Route path="/instructor/import-roster" element={<ProtectedRoute role="instructor"><ImportRosterPage /></ProtectedRoute>} />

@@ -27,10 +27,15 @@ interface RoleRequest {
   profile?: { name: string | null; email: string | null } | null;
 }
 
+const ROLE_SECTIONS: { role: Role; label: string }[] = [
+  { role: 'student', label: 'นักศึกษา' },
+  { role: 'instructor', label: 'อาจารย์' },
+  { role: 'admin', label: 'แอดมิน' },
+];
+
 export default function AdminUsersPage() {
   const [tab, setTab] = useState<Tab>('users');
   const [q, setQ] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'all' | Role>('all');
   const [rows, setRows] = useState<Row[]>([]);
   const [requests, setRequests] = useState<RoleRequest[]>([]);
   const [loading, setLoading] = useState(false);
@@ -82,13 +87,17 @@ export default function AdminUsersPage() {
   }, []);
 
   const filtered = useMemo(() => rows.filter(u => {
-    if (roleFilter !== 'all' && u.role !== roleFilter) return false;
     const s = q.trim().toLowerCase();
     if (!s) return true;
     return (u.name ?? '').toLowerCase().includes(s)
       || (u.email ?? '').toLowerCase().includes(s)
       || (u.student_code ?? '').toLowerCase().includes(s);
-  }), [rows, q, roleFilter]);
+  }), [rows, q]);
+
+  const groupedByRole = useMemo(
+    () => ROLE_SECTIONS.map(s => ({ ...s, rows: filtered.filter(u => u.role === s.role) })),
+    [filtered],
+  );
 
   const pendingRequests = requests.filter(r => r.status === 'pending');
 
@@ -226,76 +235,66 @@ export default function AdminUsersPage() {
       )}
 
       {tab === 'users' && (
-      <div className="bg-card rounded-2xl p-4 shadow-card border border-border space-y-3">
-        <div className="flex flex-col md:flex-row gap-3">
-          <div className="relative flex-1">
+      <div className="space-y-4">
+        <div className="bg-card rounded-2xl p-4 shadow-card border border-border">
+          <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input value={q} onChange={e => setQ(e.target.value)}
               placeholder="ค้นหาชื่อ / อีเมล / รหัสนักศึกษา"
               className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-muted text-sm outline-none focus:ring-2 focus:ring-primary/30" />
           </div>
-          <div className="flex gap-2">
-            {(['all', 'student', 'instructor', 'admin'] as const).map(r => (
-              <button key={r} onClick={() => setRoleFilter(r)}
-                className={`px-4 py-2 rounded-xl text-xs font-medium ${
-                  roleFilter === r ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
-                }`}>
-                {r === 'all' ? 'ทั้งหมด' : r === 'student' ? 'นักศึกษา' : r === 'instructor' ? 'อาจารย์' : 'แอดมิน'}
-              </button>
-            ))}
-          </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-muted-foreground border-b border-border">
-                <th className="py-2 px-2">ชื่อ</th>
-                <th className="py-2 px-2 hidden md:table-cell">อีเมล</th>
-                <th className="py-2 px-2 hidden sm:table-cell">รหัส/สังกัด</th>
-                <th className="py-2 px-2">บทบาท</th>
-                <th className="py-2 px-2 text-right">การดำเนินการ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(u => (
-                <tr key={u.user_id} className="border-b border-border last:border-0 hover:bg-muted/40">
-                  <td className="py-2.5 px-2 font-medium text-foreground">{u.name ?? '-'}</td>
-                  <td className="py-2.5 px-2 text-muted-foreground hidden md:table-cell">{u.email ?? '-'}</td>
-                  <td className="py-2.5 px-2 text-muted-foreground hidden sm:table-cell">{u.student_code ?? u.department ?? '-'}</td>
-                  <td className="py-2.5 px-2">
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold inline-flex items-center gap-1 ${
-                      u.role === 'admin' ? 'bg-destructive/10 text-destructive'
-                      : u.role === 'instructor' ? 'bg-secondary/30 text-secondary-foreground'
-                      : 'bg-primary/10 text-primary'
-                    }`}>
-                      <RoleIcon r={u.role} />
-                      {u.role === 'admin' ? 'แอดมิน' : u.role === 'instructor' ? 'อาจารย์' : 'นักศึกษา'}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-2">
-                    <div className="flex items-center justify-end gap-1">
-                      <button onClick={() => handleDelete(u)}
-                        className="w-8 h-8 rounded-lg hover:bg-destructive/10 flex items-center justify-center text-destructive">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!loading && filtered.length === 0 && (
-            <div className="py-12 text-center text-muted-foreground text-sm">
-              <Filter className="w-8 h-8 mx-auto mb-2 opacity-40" /> ไม่พบผู้ใช้
+        {loading && (
+          <div className="bg-card rounded-2xl p-8 shadow-card border border-border text-center text-muted-foreground text-sm flex items-center justify-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" /> กำลังโหลด…
+          </div>
+        )}
+
+        {!loading && filtered.length === 0 && (
+          <div className="bg-card rounded-2xl p-8 shadow-card border border-border text-center text-muted-foreground text-sm">
+            <Filter className="w-8 h-8 mx-auto mb-2 opacity-40" /> ไม่พบผู้ใช้
+          </div>
+        )}
+
+        {!loading && groupedByRole.map(section => section.rows.length > 0 && (
+          <div key={section.role} className="bg-card rounded-2xl shadow-card border border-border overflow-hidden">
+            <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+              <RoleIcon r={section.role} />
+              <h3 className="text-sm font-bold text-foreground">{section.label}</h3>
+              <span className="text-xs text-muted-foreground">({section.rows.length})</span>
             </div>
-          )}
-          {loading && (
-            <div className="py-12 text-center text-muted-foreground text-sm flex items-center justify-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" /> กำลังโหลด…
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-muted-foreground border-b border-border">
+                    <th className="py-2 px-2">ชื่อ</th>
+                    <th className="py-2 px-2 hidden md:table-cell">อีเมล</th>
+                    <th className="py-2 px-2 hidden sm:table-cell">รหัส/สังกัด</th>
+                    <th className="py-2 px-2 text-right">การดำเนินการ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {section.rows.map(u => (
+                    <tr key={u.user_id} className="border-b border-border last:border-0 hover:bg-muted/40">
+                      <td className="py-2.5 px-2 font-medium text-foreground">{u.name ?? '-'}</td>
+                      <td className="py-2.5 px-2 text-muted-foreground hidden md:table-cell">{u.email ?? '-'}</td>
+                      <td className="py-2.5 px-2 text-muted-foreground hidden sm:table-cell">{u.student_code ?? u.department ?? '-'}</td>
+                      <td className="py-2.5 px-2">
+                        <div className="flex items-center justify-end gap-1">
+                          <button onClick={() => handleDelete(u)}
+                            className="w-8 h-8 rounded-lg hover:bg-destructive/10 flex items-center justify-center text-destructive">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          )}
-        </div>
+          </div>
+        ))}
       </div>
       )}
 

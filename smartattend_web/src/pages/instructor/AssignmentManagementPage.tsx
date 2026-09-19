@@ -1,11 +1,15 @@
 import MobileLayout from '@/components/MobileLayout';
 import { useAuth } from '@/lib/auth-context';
 import { fetchInstructorCourses } from '@/lib/attendance-data';
-import { fetchAssignments, fetchAssignmentSubmissions, fmtDateTime, type AssignmentRow } from '@/lib/assignment-data';
+import {
+  fetchAssignments, fetchAssignmentSubmissions, fmtDateTime, formatFileSize,
+  getSubmissionFileUrl, uploadAssignmentAttachment, ALLOWED_EXTENSIONS, MAX_FILE_SIZE,
+  type AssignmentRow,
+} from '@/lib/assignment-data';
 import { supabase } from '@/integrations/supabase/client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, FileText, Calendar, Users, Trash2, Loader2, X } from 'lucide-react';
+import { Plus, FileText, Calendar, Users, Trash2, Loader2, X, Paperclip } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Course { id: string; code: string; name: string }
@@ -20,6 +24,8 @@ const AssignmentManagementPage = () => {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', due_at: '', max_score: '100' });
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -42,6 +48,20 @@ const AssignmentManagementPage = () => {
 
   useEffect(() => { load(); }, [load]);
 
+  const onPickAttachment = (file: File | null) => {
+    if (!file) { setAttachment(null); return; }
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      toast.error(`ไฟล์นามสกุล .${ext} ไม่รองรับ`);
+      return;
+    }
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error(`ไฟล์ใหญ่เกินไป (สูงสุด ${formatFileSize(MAX_FILE_SIZE)})`);
+      return;
+    }
+    setAttachment(file);
+  };
+
   const create = async () => {
     if (!user || !selectedCourse) return;
     const title = form.title.trim();
@@ -49,21 +69,42 @@ const AssignmentManagementPage = () => {
     const max = Number(form.max_score);
     if (!Number.isFinite(max) || max <= 0 || max > 1000) { toast.error('คะแนนเต็มไม่ถูกต้อง'); return; }
     setSaving(true);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase as any).from('assignments').insert({
-      course_id: selectedCourse,
-      title: title.slice(0, 200),
-      description: form.description.trim().slice(0, 2000) || null,
-      due_at: form.due_at ? new Date(form.due_at).toISOString() : null,
-      max_score: max,
-      created_by: user.id,
-    });
-    setSaving(false);
-    if (error) { console.error(error); toast.error('สร้างงานไม่สำเร็จ'); return; }
-    toast.success('สร้างงานเรียบร้อย');
-    setForm({ title: '', description: '', due_at: '', max_score: '100' });
-    setShowForm(false);
-    load();
+    try {
+      let attachment_path: string | null = null;
+      let attachment_name: string | null = null;
+      if (attachment) {
+        attachment_path = await uploadAssignmentAttachment(user.id, attachment);
+        if (!attachment_path) throw new Error('อัปโหลดไฟล์แนบไม่สำเร็จ');
+        attachment_name = attachment.name;
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase as any).from('assignments').insert({
+        course_id: selectedCourse,
+        title: title.slice(0, 200),
+        description: form.description.trim().slice(0, 2000) || null,
+        due_at: form.due_at ? new Date(form.due_at).toISOString() : null,
+        max_score: max,
+        created_by: user.id,
+        attachment_path,
+        attachment_name,
+      });
+      if (error) throw error;
+      toast.success('สร้างงานเรียบร้อย');
+      setForm({ title: '', description: '', due_at: '', max_score: '100' });
+      setAttachment(null);
+      setShowForm(false);
+      load();
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : 'สร้างงานไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openAttachment = async (path: string) => {
+    const url = await getSubmissionFileUrl(path);
+    if (url) window.open(url, '_blank'); else toast.error('เปิดไฟล์ไม่สำเร็จ');
   };
 
   const remove = async (id: string) => {
@@ -117,6 +158,27 @@ const AssignmentManagementPage = () => {
                   className="w-full px-3 py-2 rounded-xl bg-muted text-xs text-foreground outline-none" />
               </div>
             </div>
+            <div>
+              <label className="text-[10px] text-muted-foreground">ไฟล์แนบ (ไม่บังคับ)</label>
+              <input ref={fileInputRef} type="file" className="hidden"
+                onChange={e => onPickAttachment(e.target.files?.[0] ?? null)} />
+              {attachment ? (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-muted text-xs">
+                  <Paperclip className="w-3.5 h-3.5 text-primary shrink-0" />
+                  <span className="flex-1 truncate text-foreground">{attachment.name}</span>
+                  <span className="text-muted-foreground shrink-0">{formatFileSize(attachment.size)}</span>
+                  <button onClick={() => { setAttachment(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                    className="shrink-0 text-muted-foreground hover:text-destructive">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => fileInputRef.current?.click()}
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-border text-xs text-muted-foreground hover:border-primary hover:text-primary">
+                  <Paperclip className="w-3.5 h-3.5" /> แนบไฟล์โจทย์/เอกสารประกอบ
+                </button>
+              )}
+            </div>
             <button onClick={create} disabled={saving}
               className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl gradient-primary text-primary-foreground text-xs font-semibold disabled:opacity-50">
               {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />} บันทึกงาน
@@ -143,6 +205,12 @@ const AssignmentManagementPage = () => {
                   <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {fmtDateTime(a.due_at)}</span>
                   <span className="flex items-center gap-1"><Users className="w-3 h-3" /> ส่งแล้ว {counts[a.id] ?? 0} คน</span>
                   <span>เต็ม {a.max_score}</span>
+                  {a.attachment_path && (
+                    <button onClick={() => openAttachment(a.attachment_path!)}
+                      className="flex items-center gap-1 text-primary font-medium">
+                      <Paperclip className="w-3 h-3" /> {a.attachment_name ?? 'ไฟล์แนบ'}
+                    </button>
+                  )}
                 </div>
               </div>
               <button onClick={() => remove(a.id)} className="shrink-0 p-2 rounded-xl bg-destructive/10">

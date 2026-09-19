@@ -204,6 +204,12 @@ const StudentAssignmentsPage = () => {
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
                     className="overflow-hidden space-y-2">
                     {a.description && <p className="text-xs text-foreground/80 pt-1">{a.description}</p>}
+                    {a.attachment_path && (
+                      <button onClick={() => openFile(a.attachment_path!)}
+                        className="text-xs text-primary font-medium inline-flex items-center gap-1.5">
+                        <Paperclip className="w-3.5 h-3.5" /> {a.attachment_name ?? 'ไฟล์แนบจากอาจารย์'}
+                      </button>
+                    )}
 
                     {sub && (
                       <div className="text-[11px] text-muted-foreground">

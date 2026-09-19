@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { BookOpen, Users, TrendingUp, AlertTriangle, ClipboardList, GraduationCap, FileText, PlusCircle, CalendarOff, ScanFace, Radio, PlayCircle } from 'lucide-react';
+import { BookOpen, Users, TrendingUp, AlertTriangle, ClipboardList, GraduationCap, FileText, PlusCircle, CalendarOff, ScanFace, Radio, PlayCircle, Upload, Download } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import MobileLayout from '@/components/MobileLayout';
 import { useNavigate } from 'react-router-dom';
@@ -170,29 +170,49 @@ const InstructorDashboard = () => {
           </div>
         </div>
 
-        <div>
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">ทางลัด</h2>
-          <div className="grid grid-cols-2 gap-3">
-            {[
+        {[
+          {
+            group: 'การเรียนการสอน',
+            items: [
               { label: 'เปิดคลาส', icon: PlayCircle, path: '/instructor/class-test' },
               { label: 'เช็คชื่อ', icon: ClipboardList, path: '/instructor/attendance' },
-              { label: 'รายงาน', icon: FileText, path: '/instructor/reports' },
+              { label: 'รายชื่อในวิชา', icon: Users, path: '/instructor/roster' },
+              { label: 'Import รายชื่อ', icon: Upload, path: '/instructor/import-roster' },
+            ],
+          },
+          {
+            group: 'งานและคะแนน',
+            items: [
               { label: 'สร้างงาน', icon: PlusCircle, path: '/instructor/assignments' },
+              { label: 'เกรด', icon: GraduationCap, path: '/instructor/grades' },
+              { label: 'Export คะแนน', icon: Download, path: '/instructor/export' },
+            ],
+          },
+          {
+            group: 'อื่น ๆ',
+            items: [
+              { label: 'รายงาน', icon: FileText, path: '/instructor/reports' },
               { label: 'ใบลา', icon: CalendarOff, path: '/instructor/leaves' },
               { label: 'สถานะใบหน้า', icon: ScanFace, path: '/instructor/face-status' },
-              { label: 'เกรด', icon: GraduationCap, path: '/instructor/grades' },
-            ].map((a, i) => (
-              <motion.button key={a.label} custom={i} variants={fadeUp} initial="hidden" animate="show"
-                onClick={() => navigate(a.path)}
-                className="bg-card rounded-xl p-4 flex items-center gap-3 shadow-card text-left">
-                <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-                  <a.icon className="w-5 h-5" />
-                </div>
-                <span className="text-xs font-medium text-foreground">{a.label}</span>
-              </motion.button>
-            ))}
+            ],
+          },
+        ].map((section) => (
+          <div key={section.group}>
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">{section.group}</h2>
+            <div className="grid grid-cols-2 gap-3">
+              {section.items.map((a, i) => (
+                <motion.button key={a.label} custom={i} variants={fadeUp} initial="hidden" animate="show"
+                  onClick={() => navigate(a.path)}
+                  className="bg-card rounded-xl p-4 flex items-center gap-3 shadow-card text-left">
+                  <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                    <a.icon className="w-5 h-5" />
+                  </div>
+                  <span className="text-xs font-medium text-foreground">{a.label}</span>
+                </motion.button>
+              ))}
+            </div>
           </div>
-        </div>
+        ))}
       </div>
     </MobileLayout>
   );

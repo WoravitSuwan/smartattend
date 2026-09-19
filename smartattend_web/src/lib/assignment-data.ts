@@ -10,6 +10,8 @@ export interface AssignmentRow {
   due_at: string | null;
   max_score: number;
   created_at: string;
+  attachment_path: string | null;
+  attachment_name: string | null;
   courseCode?: string;
   courseName?: string;
 }
@@ -49,7 +51,7 @@ export async function fetchAssignments(courseIds: string[]): Promise<AssignmentR
   if (courseIds.length === 0) return [];
   const { data, error } = await (supabase as any)
     .from('assignments')
-    .select('id, course_id, title, description, due_at, max_score, created_at, courses!inner ( code, name )')
+    .select('id, course_id, title, description, due_at, max_score, created_at, attachment_path, attachment_name, courses!inner ( code, name )')
     .in('course_id', courseIds)
     .order('due_at', { ascending: true, nullsFirst: false });
   if (error) { console.error('fetchAssignments', error); return []; }
@@ -92,6 +94,12 @@ export async function uploadSubmissionFile(userId: string, file: File): Promise<
   if (error) { console.error('uploadSubmissionFile', error); return null; }
   return path;
 }
+
+/** Same bucket/path convention as a student's submission — an instructor
+ * uploading to their own uid folder is already covered by the same
+ * storage policy, just used here for the assignment's own reference file
+ * instead of what a student sends back. */
+export const uploadAssignmentAttachment = uploadSubmissionFile;
 
 export async function getSubmissionFileUrl(path: string): Promise<string | null> {
   const { data, error } = await supabase.storage.from('assignment-files').createSignedUrl(path, 300);
