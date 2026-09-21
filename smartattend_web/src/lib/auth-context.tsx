@@ -97,6 +97,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
 
+    // If buildUser ever rejects (deleted account, invalid/revoked session,
+    // network error) sign out and clear state instead of leaving `loading`
+    // stuck true forever — that stuck state is what renders as a permanent
+    // blank screen in App.tsx (`if (loading) return null`).
+    const onBuildUserFailed = (err: unknown) => {
+      console.warn('buildUser failed — signing out', err);
+      if (!active) return;
+      setUser(null);
+      setLoading(false);
+      supabase.auth.signOut().catch(() => {});
+    };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session?.user) {
         if (active) { setUser(null); setLoading(false); }
@@ -106,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setTimeout(() => {
         buildUser(session.user).then(u => {
           if (active) { setUser(u); setLoading(false); }
-        });
+        }).catch(onBuildUserFailed);
       }, 0);
     });
 
@@ -117,8 +129,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       buildUser(session.user).then(u => {
         if (active) { setUser(u); setLoading(false); }
-      });
-    });
+      }).catch(onBuildUserFailed);
+    }).catch(onBuildUserFailed);
 
     return () => { active = false; subscription.unsubscribe(); };
   }, []);

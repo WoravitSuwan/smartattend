@@ -207,8 +207,9 @@ const AssignmentManagementPage = () => {
                   <span>เต็ม {a.max_score}</span>
                   {a.attachment_path && (
                     <button onClick={() => openAttachment(a.attachment_path!)}
-                      className="flex items-center gap-1 text-primary font-medium">
-                      <Paperclip className="w-3 h-3" /> {a.attachment_name ?? 'ไฟล์แนบ'}
+                      className="flex items-center gap-1 text-primary font-medium max-w-full">
+                      <Paperclip className="w-3 h-3 shrink-0" />
+                      <span className="truncate">{a.attachment_name ?? 'ไฟล์แนบ'}</span>
                     </button>
                   )}
                 </div>

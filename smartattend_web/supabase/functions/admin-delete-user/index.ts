@@ -41,6 +41,7 @@ Deno.serve(async (req) => {
     await admin.from('face_images').delete().eq('user_id', targetId);
     await admin.from('registration_statuses').delete().eq('user_id', targetId);
     await admin.from('student_courses').delete().eq('user_id', targetId);
+    await admin.from('course_enrollments').delete().eq('student_id', targetId);
     await admin.from('user_roles').delete().eq('user_id', targetId);
     await admin.from('profiles').delete().eq('user_id', targetId);
 

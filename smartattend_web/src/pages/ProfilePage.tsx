@@ -1,7 +1,7 @@
 import MobileLayout from '@/components/MobileLayout';
 import { useAuth } from '@/lib/auth-context';
 import { useState, useRef } from 'react';
-import { User, Mail, GraduationCap, Building2, Key, LogOut, ChevronRight, Camera, Phone, Save, X, ScanFace, Building } from 'lucide-react';
+import { User, Mail, GraduationCap, Building2, Key, LogOut, ChevronRight, Camera, Phone, Save, X, ScanFace, Building, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import { toast } from 'sonner';
@@ -25,7 +25,7 @@ const formatStudentId = (raw: string) => {
 };
 
 const ProfilePage = () => {
-  const { user, logout, updateUser } = useAuth();
+  const { user, logout, updateUser, updatePassword } = useAuth();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -36,6 +36,39 @@ const ProfilePage = () => {
   const [department, setDepartment] = useState(user?.department || '');
   const [phone, setPhone] = useState(user?.phone || '');
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+
+  const closePasswordModal = () => {
+    setShowPasswordModal(false);
+    setNewPassword('');
+    setConfirmNewPassword('');
+    setShowNewPassword(false);
+  };
+
+  const handleChangePassword = async () => {
+    if (newPassword.length < 8) {
+      toast.error('รหัสผ่านใหม่ต้องมีอย่างน้อย 8 ตัวอักษร');
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      toast.error('รหัสผ่านใหม่ไม่ตรงกัน');
+      return;
+    }
+    setChangingPassword(true);
+    const res = await updatePassword(newPassword);
+    setChangingPassword(false);
+    if (!res.success) {
+      toast.error(res.error || 'เปลี่ยนรหัสผ่านไม่สำเร็จ');
+      return;
+    }
+    toast.success('เปลี่ยนรหัสผ่านเรียบร้อย');
+    closePasswordModal();
+  };
 
   const isStudent = user?.role === 'student';
 
@@ -267,7 +300,10 @@ const ProfilePage = () => {
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
             </button>
           )}
-          <button className="w-full bg-card rounded-xl p-4 flex items-center gap-3 shadow-card hover:shadow-elevated transition-shadow text-left">
+          <button
+            onClick={() => setShowPasswordModal(true)}
+            className="w-full bg-card rounded-xl p-4 flex items-center gap-3 shadow-card hover:shadow-elevated transition-shadow text-left"
+          >
             <div className="w-9 h-9 rounded-lg bg-primary-light flex items-center justify-center">
               <Key className="w-4 h-4 text-primary" />
             </div>
@@ -286,6 +322,69 @@ const ProfilePage = () => {
           </button>
         </div>
       </div>
+
+      {showPasswordModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={closePasswordModal}
+        >
+          <div
+            className="bg-card rounded-t-2xl sm:rounded-2xl shadow-xl border border-border w-full sm:max-w-sm p-4 space-y-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold font-display text-foreground">เปลี่ยนรหัสผ่าน</h3>
+              <button onClick={closePasswordModal} className="w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground font-medium mb-1 block">รหัสผ่านใหม่</label>
+              <div className="flex items-center gap-2 bg-muted rounded-xl px-3 py-2.5">
+                <Key className="w-4 h-4 text-primary flex-shrink-0" />
+                <input
+                  type={showNewPassword ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  placeholder="อย่างน้อย 8 ตัวอักษร"
+                  maxLength={128}
+                  className="flex-1 min-w-0 bg-transparent text-sm text-foreground outline-none"
+                />
+                <button type="button" onClick={() => setShowNewPassword(v => !v)} className="text-muted-foreground flex-shrink-0">
+                  {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground font-medium mb-1 block">ยืนยันรหัสผ่านใหม่</label>
+              <div className="flex items-center gap-2 bg-muted rounded-xl px-3 py-2.5">
+                <Key className="w-4 h-4 text-primary flex-shrink-0" />
+                <input
+                  type={showNewPassword ? 'text' : 'password'}
+                  value={confirmNewPassword}
+                  onChange={e => setConfirmNewPassword(e.target.value)}
+                  placeholder="กรอกรหัสผ่านใหม่อีกครั้ง"
+                  maxLength={128}
+                  className="flex-1 min-w-0 bg-transparent text-sm text-foreground outline-none"
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={handleChangePassword}
+              disabled={changingPassword}
+              className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold shadow-elevated disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {changingPassword ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> กำลังบันทึก…</>
+              ) : (
+                'บันทึกรหัสผ่านใหม่'
+              )}
+            </button>
+          </div>
+        </div>
+      )}
     </MobileLayout>
   );
 };

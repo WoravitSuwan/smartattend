@@ -88,22 +88,29 @@ export async function upsertMyRegStatus(input: {
   return mapRow(data);
 }
 
-/** Admin-side: record the training result for a student (RLS admin-only). */
+/** Admin-side: record the training result for a student (RLS admin-only).
+ *  Upserts rather than plain-updates so a student whose status row never
+ *  got created (e.g. an earlier failed/interrupted upsert on the student's
+ *  side) still gets a row instead of the training result silently
+ *  targeting zero rows. */
 export async function setRegStatusAsAdmin(
   userId: string,
   status: 'training_success' | 'training_failed',
   failureReason?: string | null,
   runId?: string | null,
+  student?: { code?: string | null; name?: string },
 ): Promise<void> {
   const { error } = await supabase
     .from('registration_statuses')
-    .update({
+    .upsert({
+      user_id: userId,
+      student_code: student?.code ?? null,
+      student_name: student?.name ?? '',
       status,
       failure_reason: status === 'training_failed' ? (failureReason ?? 'ไม่ทราบสาเหตุ') : null,
       trained_run_id: runId ?? null,
       trained_at: new Date().toISOString(),
-    })
-    .eq('user_id', userId);
+    }, { onConflict: 'user_id', ignoreDuplicates: false });
   if (error) throw error;
 }
 

@@ -206,16 +206,17 @@ const StudentAssignmentsPage = () => {
                     {a.description && <p className="text-xs text-foreground/80 pt-1">{a.description}</p>}
                     {a.attachment_path && (
                       <button onClick={() => openFile(a.attachment_path!)}
-                        className="text-xs text-primary font-medium inline-flex items-center gap-1.5">
-                        <Paperclip className="w-3.5 h-3.5" /> {a.attachment_name ?? 'ไฟล์แนบจากอาจารย์'}
+                        className="w-full max-w-full text-xs text-primary font-medium flex items-center gap-1.5">
+                        <Paperclip className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{a.attachment_name ?? 'ไฟล์แนบจากอาจารย์'}</span>
                       </button>
                     )}
 
                     {sub && (
-                      <div className="text-[11px] text-muted-foreground">
-                        ส่งเมื่อ {fmtDateTime(sub.submitted_at)}
+                      <div className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="shrink-0">ส่งเมื่อ {fmtDateTime(sub.submitted_at)}</span>
                         {sub.file_path && (
-                          <button onClick={() => openFile(sub.file_path!)} className="ml-2 text-primary font-medium inline-flex items-center gap-1">
+                          <button onClick={() => openFile(sub.file_path!)} className="text-primary font-medium inline-flex items-center gap-1 shrink-0">
                             <Paperclip className="w-3 h-3" /> ดูไฟล์ที่ส่ง
                           </button>
                         )}

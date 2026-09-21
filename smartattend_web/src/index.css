@@ -112,6 +112,15 @@
   * {
     @apply border-border;
   }
+  html, body, #root {
+    /* Safety net: a single long unbroken word/filename/URL anywhere in the
+     * app must never be able to push the whole page wider than the phone
+     * screen — that's what forces users to scroll/rotate sideways just to
+     * reach a button. Overflowing content gets clipped within its own box
+     * instead of growing the page. */
+    max-width: 100%;
+    overflow-x: hidden;
+  }
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-body);

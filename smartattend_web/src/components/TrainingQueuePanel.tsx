@@ -25,13 +25,16 @@ export default function TrainingQueuePanel({ onTrain, running }: {
 
   const load = useCallback(async () => {
     try {
-      const [sts, countRes, origRes] = await Promise.all([
+      const [sts, countRes, origRes, metaRes] = await Promise.all([
         fetchAllRegStatuses(),
         supabase.from('face_images').select('id, student_id'),
         supabase.from('face_images')
           .select('id, student_id, pose, pose_label, image_data, captured_at')
           .eq('kind', 'original')
           .order('captured_at', { ascending: true }),
+        supabase.from('face_images')
+          .select('student_id, student_code, student_name, captured_at')
+          .order('captured_at', { ascending: false }),
       ]);
       setStatuses(sts);
       if (!countRes.error) {
@@ -45,6 +48,46 @@ export default function TrainingQueuePanel({ onTrain, running }: {
           (t[r.student_id] ??= []).push({ id: r.id, pose: r.pose, poseLabel: r.pose_label, imageData: r.image_data });
         }
         setThumbs(t);
+      }
+      // Self-heal: a student can have photos in face_images without a
+      // matching (or up-to-date) registration_statuses row, e.g. if the
+      // status upsert after upload failed/dropped — that student would
+      // otherwise have photos sitting in the "dataset" but never show up
+      // in this queue. Synthesize a queue entry from face_images for any
+      // student whose status is missing entirely or still stuck at
+      // pending_registration despite having submitted photos.
+      if (!metaRes.error) {
+        const latestMeta = new Map<string, { code: string | null; name: string; at: string }>();
+        for (const r of metaRes.data ?? []) {
+          if (!latestMeta.has(r.student_id)) {
+            latestMeta.set(r.student_id, { code: r.student_code, name: r.student_name, at: r.captured_at });
+          }
+        }
+        const byUserId = new Map(sts.map(s => [s.userId, s]));
+        const orphaned: RegistrationStatus[] = [];
+        for (const [userId, meta] of latestMeta) {
+          const existing = byUserId.get(userId);
+          if (existing && existing.status !== 'pending_registration') continue;
+          orphaned.push({
+            id: `orphan-${userId}`,
+            userId,
+            studentCode: meta.code,
+            studentName: meta.name,
+            status: 'pending_training',
+            failureReason: null,
+            trainedRunId: null,
+            trainedAt: null,
+            createdAt: meta.at,
+            updatedAt: meta.at,
+          });
+        }
+        if (orphaned.length) {
+          setStatuses(prev => {
+            const byId = new Map(prev.map(s => [s.userId, s]));
+            for (const o of orphaned) byId.set(o.userId, o);
+            return Array.from(byId.values());
+          });
+        }
       }
     } catch (e) {
       console.warn('load training queue failed', e);

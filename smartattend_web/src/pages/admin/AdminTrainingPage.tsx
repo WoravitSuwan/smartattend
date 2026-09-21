@@ -271,7 +271,8 @@ export default function AdminTrainingPage() {
     if (imgCount < 5) {
       try {
         await setRegStatusAsAdmin(t.userId, 'training_failed',
-          `จำนวนรูปไม่เพียงพอ (${imgCount} รูป — ต้องมีอย่างน้อย 5 รูป) กรุณาถ่ายรูปลงทะเบียนใหม่`);
+          `จำนวนรูปไม่เพียงพอ (${imgCount} รูป — ต้องมีอย่างน้อย 5 รูป) กรุณาถ่ายรูปลงทะเบียนใหม่`,
+          null, { code: t.code, name: t.name });
       } catch (e) { console.warn('set status failed', e); }
       toast.error(`เทรน ${t.name} ไม่สำเร็จ — จำนวนรูปไม่เพียงพอ (${imgCount} รูป)`);
       return;
@@ -291,6 +292,7 @@ export default function AdminTrainingPage() {
                   ? 'การเทรนถูกหยุดก่อนเสร็จสิ้น — กรุณารอแอดมินเทรนใหม่'
                   : 'การเทรนล้มเหลว — กรุณาถ่ายรูปใหม่หรือรอแอดมินเทรนใหม่')),
             runId,
+            { code: t.code, name: t.name },
           );
           if (success) toast.success(`อัปเดตสถานะ: ${t.name} เทรนสำเร็จ ✓ (นักศึกษาเห็นผลทันที)`);
           else toast.error(`อัปเดตสถานะ: ${t.name} เทรนไม่สำเร็จ`);
