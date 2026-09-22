@@ -82,11 +82,16 @@ def get_open_session() -> dict | None:
 
 
 def get_enrolled_students(course_id: str) -> list[dict]:
-    """รายชื่อนักศึกษาที่ยืนยันเข้าร่วมรายวิชานี้แล้ว"""
+    """รายชื่อนักศึกษาที่ยืนยันเข้าร่วมรายวิชานี้แล้ว
+
+    ไม่รวมนักศึกษาที่ถูกระงับสิทธิ์จากการขาดเรียนครบ 4 ครั้ง (attendance_blocked)
+    — คนกลุ่มนี้จะไม่ถูกใส่ในคลังใบหน้าเลย จึงสแกนเช็คชื่อไม่ได้อีกต่อไป
+    """
     rows = _get("course_enrollments", {
         "select": "student_id,student_code_raw,student_name_raw",
         "course_id": f"eq.{course_id}",
         "status": "eq.confirmed",
+        "attendance_blocked": "eq.false",
     })
     return [r for r in rows if r.get("student_id")]
 

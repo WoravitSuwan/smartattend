@@ -1,6 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 
-export type AttStatus = 'on_time' | 'late' | 'absent';
+export type AttStatus = 'on_time' | 'late' | 'absent' | 'excused';
 
 export interface AttendanceRow {
   id: string;
@@ -117,12 +117,14 @@ export const statusLabel: Record<AttStatus, string> = {
   on_time: 'ตรงเวลา',
   late: 'มาสาย',
   absent: 'ขาดเรียน',
+  excused: 'ลา',
 };
 
 export const statusClass: Record<AttStatus, string> = {
   on_time: 'bg-success text-success-foreground',
   late: 'bg-warning text-warning-foreground',
   absent: 'bg-destructive text-destructive-foreground',
+  excused: 'bg-primary text-primary-foreground',
 };
 
 export function fmtDateTime(iso: string | null): string {

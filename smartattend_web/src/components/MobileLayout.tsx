@@ -51,6 +51,9 @@ const typeIcon: Record<string, string> = {
   leave_rejected: '❌',
   grade_announced: '🏆',
   training_failed: '⚠️',
+  grade_posted: '🏆',
+  attendance_warning: '⚠️',
+  attendance_blocked: '🚫',
 };
 
 

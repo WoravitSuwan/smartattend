@@ -22,6 +22,8 @@ interface Enrollment {
   student_name_raw: string;
   status: 'pending' | 'confirmed' | 'declined' | 'unmatched';
   confirmed_at: string | null;
+  absent_count: number;
+  attendance_blocked: boolean;
 }
 interface ProfileHit { user_id: string; name: string | null; email: string | null; student_code: string | null; }
 
@@ -100,7 +102,7 @@ export default function CourseRosterPage() {
     const load = async () => {
       const { data } = await (supabase as any)
         .from('course_enrollments')
-        .select('id, course_id, student_id, student_code_raw, student_name_raw, status, confirmed_at')
+        .select('id, course_id, student_id, student_code_raw, student_name_raw, status, confirmed_at, absent_count, attendance_blocked')
         .eq('course_id', selectedId)
         .order('student_code_raw', { ascending: true });
       if (!alive || !data) return;
@@ -271,9 +273,20 @@ export default function CourseRosterPage() {
                             {r.student_id ? (phoneByStudent[r.student_id] ?? '-') : '-'}
                           </td>
                           <td className="px-3 py-2">
-                            <span className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border ${s.cls}`}>
-                              <Icon className="w-3 h-3" /> {s.label}
-                            </span>
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border ${s.cls}`}>
+                                <Icon className="w-3 h-3" /> {s.label}
+                              </span>
+                              {r.attendance_blocked ? (
+                                <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border bg-destructive/15 text-destructive border-destructive/30">
+                                  <AlertCircle className="w-3 h-3" /> ขาด {r.absent_count} ครั้ง — ระงับสิทธิ์
+                                </span>
+                              ) : r.absent_count > 0 && (
+                                <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border bg-warning/15 text-warning border-warning/30">
+                                  ขาด {r.absent_count} ครั้ง
+                                </span>
+                              )}
+                            </div>
                           </td>
                           {!isAdminView && (
                             <td className="px-3 py-2">

@@ -10,7 +10,7 @@ import { AttendanceRow, AttStatus, fetchInstructorCourses, fetchSessionAttendanc
 
 interface SessionRow { id: string; started_at: string; course_id: string }
 
-const OPTIONS: AttStatus[] = ['on_time', 'late', 'absent'];
+const OPTIONS: AttStatus[] = ['on_time', 'late', 'absent', 'excused'];
 
 const ManualAttendanceEditPage = () => {
   const { user } = useAuth();

@@ -20,7 +20,7 @@ interface Record {
   photo_data_url: string | null;
   confidence: number | null;
   checked_in_at: string | null;
-  status: 'on_time' | 'late' | 'absent';
+  status: 'on_time' | 'late' | 'absent' | 'excused';
   student_name?: string | null;
   student_code?: string | null;
 }
@@ -427,7 +427,9 @@ export default function StartClassTestPage() {
                     ? { label: 'ขาดเรียน', cls: 'bg-destructive/15 text-destructive' }
                     : r.status === 'late'
                       ? { label: 'มาสาย', cls: 'bg-yellow-500/15 text-yellow-700 dark:text-yellow-400' }
-                      : { label: 'ตรงเวลา', cls: 'bg-green-500/15 text-green-700 dark:text-green-400' };
+                      : r.status === 'excused'
+                        ? { label: 'ลา', cls: 'bg-primary/15 text-primary' }
+                        : { label: 'ตรงเวลา', cls: 'bg-green-500/15 text-green-700 dark:text-green-400' };
                   return (
                     <div key={r.id} className="flex items-center gap-3 p-2 rounded-lg bg-muted/30">
                       {r.photo_data_url ? (

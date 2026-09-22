@@ -258,6 +258,9 @@ export type Database = {
       }
       course_enrollments: {
         Row: {
+          absent_count: number
+          attendance_blocked: boolean
+          attendance_blocked_at: string | null
           confirmed_at: string | null
           course_id: string
           created_at: string
@@ -268,6 +271,9 @@ export type Database = {
           student_name_raw: string
         }
         Insert: {
+          absent_count?: number
+          attendance_blocked?: boolean
+          attendance_blocked_at?: string | null
           confirmed_at?: string | null
           course_id: string
           created_at?: string
@@ -278,6 +284,9 @@ export type Database = {
           student_name_raw: string
         }
         Update: {
+          absent_count?: number
+          attendance_blocked?: boolean
+          attendance_blocked_at?: string | null
           confirmed_at?: string | null
           course_id?: string
           created_at?: string
