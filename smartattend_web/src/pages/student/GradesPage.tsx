@@ -70,7 +70,7 @@ const GradesPage = () => {
   }, [rows]);
 
   return (
-    <MobileLayout title="คะแนน">
+    <MobileLayout title="คะแนนเก็บ">
       <div className="px-4 py-4 space-y-3">
         {summary.semesters.length > 0 && (
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
@@ -143,7 +143,7 @@ const GradesPage = () => {
                         className="h-full rounded-full gradient-primary" />
                     </div>
                     <span className="text-xs font-semibold text-foreground w-14 text-right">
-                      {s == null ? 'รอตรวจ' : `${s}/${max}`}
+                      {s == null ? (it.category === 'final' ? 'รอประกาศ' : 'รอตรวจ') : `${s}/${max}`}
                     </span>
                   </div>
                 );

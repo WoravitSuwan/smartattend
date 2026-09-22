@@ -184,7 +184,7 @@ const InstructorDashboard = () => {
             group: 'งานและคะแนน',
             items: [
               { label: 'สร้างงาน', icon: PlusCircle, path: '/instructor/assignments' },
-              { label: 'เกรด', icon: GraduationCap, path: '/instructor/grades' },
+              { label: 'คะแนนรวมทั้งหมด', icon: GraduationCap, path: '/instructor/grades' },
               { label: 'Export คะแนน', icon: Download, path: '/instructor/export' },
             ],
           },

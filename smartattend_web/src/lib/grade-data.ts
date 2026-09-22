@@ -71,11 +71,26 @@ export async function fetchStudentGrades(itemIds: string[], studentId?: string):
   return (data ?? []) as StudentGrade[];
 }
 
-export async function upsertGrade(gradeItemId: string, studentId: string, score: number | null, note?: string | null) {
-  return (supabase as any)
-    .from('student_grades')
-    .upsert({ grade_item_id: gradeItemId, student_id: studentId, score, note: note ?? null },
-      { onConflict: 'grade_item_id,student_id' });
+/** Upserts a student's score through the audited RPC (records who/old/new/
+ *  when, plus an optional reason) instead of writing student_grades
+ *  directly — every correction gets a paper trail. */
+export async function upsertGrade(
+  gradeItemId: string, studentId: string, score: number | null,
+  note?: string | null, reason?: string | null,
+) {
+  return supabase.rpc('upsert_student_grade', {
+    _grade_item_id: gradeItemId,
+    _student_id: studentId,
+    _score: score,
+    _note: note ?? undefined,
+    _reason: reason ?? undefined,
+  });
+}
+
+/** Publishes final exam scores + final grade for a course, revealing them
+ *  to students (RLS masks 'final' category rows until this is called). */
+export async function publishFinalGrades(courseId: string) {
+  return supabase.rpc('publish_final_grades', { _course_id: courseId });
 }
 
 /**

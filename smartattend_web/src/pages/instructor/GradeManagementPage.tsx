@@ -4,13 +4,15 @@ import { logAudit } from '@/lib/audit-log';
 import { fetchInstructorCourses, fetchSummary, type SummaryRow } from '@/lib/attendance-data';
 import {
   attendanceScore, categoryLabels, fetchGradeItems, fetchStudentGrades, gradeColor,
-  letterGrade, upsertGrade, weightedTotal, type GradeCategory, type GradeItem, type StudentGrade,
+  letterGrade, publishFinalGrades, upsertGrade, weightedTotal,
+  type GradeCategory, type GradeItem, type StudentGrade,
 } from '@/lib/grade-data';
 import { supabase } from '@/integrations/supabase/client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { Plus, Trash2, Sparkles, Loader2, Save } from 'lucide-react';
+import { Plus, Trash2, Sparkles, Loader2, Save, Megaphone, Download, Upload } from 'lucide-react';
 
 interface Course { id: string; code: string; name: string }
 interface Student { id: string; name: string; code: string }
@@ -24,9 +26,14 @@ const GradeManagementPage = () => {
   const [items, setItems] = useState<GradeItem[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [grades, setGrades] = useState<Record<string, number | null>>({}); // `${itemId}:${studentId}`
+  const [initialGrades, setInitialGrades] = useState<Record<string, number | null>>({});
   const [summary, setSummary] = useState<SummaryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [published, setPublished] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [reason, setReason] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState('');
@@ -64,6 +71,11 @@ const GradeManagementPage = () => {
     const map: Record<string, number | null> = {};
     rows.forEach((r: StudentGrade) => { map[`${r.grade_item_id}:${r.student_id}`] = r.score; });
     setGrades(map);
+    setInitialGrades(map);
+
+    const { data: courseRow } = await supabase
+      .from('courses').select('final_grade_published').eq('id', courseId).maybeSingle();
+    setPublished(!!courseRow?.final_grade_published);
 
     setSummary(await fetchSummary({ courseId }));
     setLoading(false);
@@ -99,23 +111,95 @@ const GradeManagementPage = () => {
   };
 
   const saveAll = async () => {
-    setSaving(true);
-    const ops: Promise<unknown>[] = [];
+    if (items.length > 0 && totalWeight !== 100) {
+      toast.error(`น้ำหนักรวมต้องเท่ากับ 100% พอดี (ตอนนี้ ${totalWeight}%) กรุณาปรับหัวข้อคะแนนก่อนบันทึก`);
+      return;
+    }
+    const changes: { itemId: string; studentId: string; value: number | null }[] = [];
+    let hasCorrection = false;
     for (const it of items) {
       for (const s of students) {
-        const v = grades[`${it.id}:${s.id}`];
-        if (v === undefined) continue;
-        ops.push(upsertGrade(it.id, s.id, v));
+        const key = `${it.id}:${s.id}`;
+        const v = grades[key];
+        if (v === undefined || v === initialGrades[key]) continue;
+        changes.push({ itemId: it.id, studentId: s.id, value: v });
+        if (initialGrades[key] != null) hasCorrection = true;
       }
     }
-    await Promise.all(ops);
+    if (changes.length === 0) { toast.error('ยังไม่มีการเปลี่ยนแปลง'); return; }
+    if (hasCorrection && !reason.trim()) {
+      toast.error('มีการแก้ไขคะแนนที่เคยบันทึกไว้แล้ว กรุณาระบุเหตุผลก่อนบันทึก');
+      return;
+    }
+    setSaving(true);
+    const results = await Promise.all(
+      changes.map(c => upsertGrade(c.itemId, c.studentId, c.value, undefined, reason.trim() || undefined)),
+    );
+    const failed = results.filter(r => r && (r as { error?: unknown }).error);
     setSaving(false);
+    if (failed.length > 0) { toast.error(`บันทึกไม่สำเร็จ ${failed.length} รายการ`); return; }
     await logAudit({
       action: 'grade.update', target: 'course', targetId: courseId,
-      detail: `บันทึกคะแนน ${items.length} หัวข้อ × ${students.length} คน`,
+      detail: `บันทึกคะแนน ${changes.length} รายการ${reason.trim() ? ` — เหตุผล: ${reason.trim()}` : ''}`,
     });
+    setReason('');
     toast.success('บันทึกคะแนนเรียบร้อย นักศึกษาจะได้รับการแจ้งเตือน');
     load();
+  };
+
+  const doPublish = async () => {
+    if (!window.confirm('ประกาศผลสอบปลายภาคและเกรดรวม? นักศึกษาทุกคนในวิชานี้จะเห็นคะแนนสอบปลายภาคทันทีและได้รับการแจ้งเตือน')) return;
+    setPublishing(true);
+    const { error } = await publishFinalGrades(courseId);
+    setPublishing(false);
+    if (error) { toast.error('ประกาศผลไม่สำเร็จ'); return; }
+    setPublished(true);
+    toast.success('ประกาศผลคะแนนปลายภาคแล้ว');
+  };
+
+  const exportExcel = () => {
+    if (!students.length || !items.length) { toast.error('ไม่มีข้อมูลให้ส่งออก'); return; }
+    const course = courses.find(c => c.id === courseId);
+    const rows = students.map(s => {
+      const row: Record<string, string | number> = { 'รหัสนักศึกษา': s.code, 'ชื่อ-นามสกุล': s.name };
+      items.forEach(it => { row[it.name] = grades[`${it.id}:${s.id}`] ?? ''; });
+      return row;
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'grades');
+    XLSX.writeFile(wb, `${course?.code ?? 'course'}_grades.xlsx`);
+    toast.success('ส่งออกไฟล์แล้ว');
+  };
+
+  const importExcel = async (file: File) => {
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, string | number>>(ws);
+      const byCode = new Map(students.map(s => [s.code, s]));
+      const next = { ...grades };
+      let matched = 0;
+      for (const row of rows) {
+        const code = String(row['รหัสนักศึกษา'] ?? '').trim();
+        const student = byCode.get(code);
+        if (!student) continue;
+        for (const it of items) {
+          const raw = row[it.name];
+          if (raw === undefined || raw === '') continue;
+          const num = Number(raw);
+          if (Number.isNaN(num)) continue;
+          next[`${it.id}:${student.id}`] = num;
+        }
+        matched++;
+      }
+      setGrades(next);
+      toast.success(`นำเข้าแล้ว ${matched} คน — ตรวจสอบแล้วกด "บันทึกคะแนน" เพื่อยืนยัน`);
+    } catch (e) {
+      console.error(e);
+      toast.error('อ่านไฟล์ไม่สำเร็จ — ตรวจสอบว่าคอลัมน์ "รหัสนักศึกษา" และชื่อหัวข้อคะแนนตรงกัน');
+    }
   };
 
   const autoAttendance = async () => {
@@ -138,7 +222,7 @@ const GradeManagementPage = () => {
   const totalWeight = useMemo(() => items.reduce((a, i) => a + (Number(i.weight) || 0), 0), [items]);
 
   return (
-    <MobileLayout title="จัดการคะแนน">
+    <MobileLayout title="คะแนนรวมทั้งหมด">
       <div className="px-4 py-4 space-y-4">
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
           {courses.map(c => (
@@ -173,6 +257,7 @@ const GradeManagementPage = () => {
                     <p className="text-xs font-medium text-foreground truncate">{it.name}</p>
                     <p className="text-[10px] text-muted-foreground">
                       {categoryLabels[it.category]} · เต็ม {it.max_score} · น้ำหนัก {it.weight}%
+                      {it.category === 'final' && !published && ' · นักศึกษายังไม่เห็นจนกว่าจะประกาศผล'}
                     </p>
                   </div>
                   <button onClick={() => removeItem(it.id)}><Trash2 className="w-3.5 h-3.5 text-destructive" /></button>
@@ -206,11 +291,36 @@ const GradeManagementPage = () => {
                 className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-card shadow-card text-xs font-semibold text-foreground">
                 <Sparkles className="w-3.5 h-3.5 text-primary" /> คำนวณคะแนนเข้าเรียน
               </button>
-              <button onClick={saveAll} disabled={saving || items.length === 0}
-                className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl gradient-primary text-primary-foreground text-xs font-semibold shadow-elevated disabled:opacity-50">
-                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} บันทึกคะแนน
+              <button onClick={exportExcel} disabled={!items.length || !students.length}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-card shadow-card text-xs font-semibold text-foreground disabled:opacity-50">
+                <Download className="w-3.5 h-3.5" />
               </button>
+              <button onClick={() => fileInputRef.current?.click()} disabled={!items.length}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-card shadow-card text-xs font-semibold text-foreground disabled:opacity-50">
+                <Upload className="w-3.5 h-3.5" />
+              </button>
+              <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) importExcel(f); }} />
             </div>
+
+            <textarea value={reason} onChange={e => setReason(e.target.value)} rows={2}
+              placeholder="เหตุผลในการแก้ไข (จำเป็นถ้าแก้คะแนนที่เคยบันทึกไว้แล้ว)"
+              className="w-full px-3 py-2 rounded-xl bg-muted text-xs text-foreground outline-none resize-none" />
+
+            <button onClick={saveAll} disabled={saving || items.length === 0}
+              className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl gradient-primary text-primary-foreground text-xs font-semibold shadow-elevated disabled:opacity-50">
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} บันทึกคะแนน
+            </button>
+
+            {items.some(i => i.category === 'final') && (
+              <button onClick={doPublish} disabled={publishing || published}
+                className={`w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold disabled:opacity-70 ${
+                  published ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning border border-warning/30'
+                }`}>
+                {publishing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
+                {published ? 'ประกาศผลปลายภาคแล้ว' : 'ประกาศผลสอบปลายภาค'}
+              </button>
+            )}
 
             {loading && <p className="text-center text-sm text-muted-foreground py-8">กำลังโหลด...</p>}
             {!loading && students.length === 0 && (

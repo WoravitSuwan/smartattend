@@ -111,7 +111,7 @@ const StudentDashboard = () => {
             {[
               { label: 'ลงทะเบียนใบหน้า', icon: ScanFace, path: '/student/face-register', color: 'text-accent bg-accent/10' },
               { label: 'ประวัติเข้าเรียน', icon: ClipboardList, path: '/student/history', color: 'text-primary bg-primary-light' },
-              { label: 'เกรด', icon: GraduationCap, path: '/student/grades', color: 'text-success bg-success/10' },
+              { label: 'คะแนนเก็บ', icon: GraduationCap, path: '/student/grades', color: 'text-success bg-success/10' },
               { label: 'สถิติ', icon: BarChart3, path: '/student/analytics', color: 'text-secondary bg-secondary/10' },
             ].map((action, i) => (
               <motion.button key={action.label} custom={i} variants={fadeUp} initial="hidden" animate="show"

@@ -301,6 +301,7 @@ export type Database = {
         Row: {
           code: string
           created_at: string
+          final_grade_published: boolean
           id: string
           instructor_id: string
           name: string
@@ -311,6 +312,7 @@ export type Database = {
         Insert: {
           code: string
           created_at?: string
+          final_grade_published?: boolean
           id?: string
           instructor_id: string
           name: string
@@ -321,6 +323,7 @@ export type Database = {
         Update: {
           code?: string
           created_at?: string
+          final_grade_published?: boolean
           id?: string
           instructor_id?: string
           name?: string
@@ -781,6 +784,44 @@ export type Database = {
           },
         ]
       }
+      grade_audit_logs: {
+        Row: {
+          created_at: string
+          id: string
+          modified_by: string
+          new_score: number | null
+          previous_score: number | null
+          reason: string | null
+          student_grade_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          modified_by: string
+          new_score?: number | null
+          previous_score?: number | null
+          reason?: string | null
+          student_grade_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          modified_by?: string
+          new_score?: number | null
+          previous_score?: number | null
+          reason?: string | null
+          student_grade_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "grade_audit_logs_student_grade_id_fkey"
+            columns: ["student_grade_id"]
+            isOneToOne: false
+            referencedRelation: "student_grades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       training_runs: {
         Row: {
           batch_size: number | null
@@ -900,6 +941,17 @@ export type Database = {
         Returns: number
       }
       resolve_login_email: { Args: { _input: string }; Returns: string }
+      upsert_student_grade: {
+        Args: {
+          _grade_item_id: string
+          _student_id: string
+          _score: number
+          _note?: string
+          _reason?: string
+        }
+        Returns: undefined
+      }
+      publish_final_grades: { Args: { _course_id: string }; Returns: undefined }
       check_in_attendance: {
         Args: {
           _confidence: number
