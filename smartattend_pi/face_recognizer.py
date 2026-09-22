@@ -170,14 +170,19 @@ class FaceRecognizer:
             confidence=conf, distance=dist, box=full_box,
         )
 
-    def recognise_stable(self, frame: np.ndarray) -> MatchResult | None:
+    def recognise_stable(self, result: MatchResult) -> MatchResult | None:
         """ยืนยันตัวตนก็ต่อเมื่อเจอคนเดิมติดกันหลายเฟรม
+
+        รับผล MatchResult ที่คำนวณไว้แล้วจาก recognise() แทนที่จะรับเฟรมดิบ
+        แล้วเรียก recognise() ซ้ำเอง — เดิมโค้ดฝั่งเรียกใช้ (pi_agent.py)
+        เรียก recognise() หนึ่งครั้งสำหรับภาพพรีวิว แล้วเรียก recognise_stable()
+        อีกครั้งซึ่งข้างในเรียก recognise() ซ้ำอีกรอบ เท่ากับตรวจจับ+เข้ารหัส
+        ใบหน้าสองรอบต่อหนึ่งเฟรมโดยไม่จำเป็น ทำให้เวลาตอบสนองต่อเฟรมช้ากว่า
+        ความสามารถจริงของระบบเกือบเท่าตัว
 
         ลดโอกาสบันทึกผิดจากเฟรมเดียวที่บังเอิญเบลอหรือมุมแปลก
         คืน None ระหว่างที่ยังนับไม่ครบ
         """
-        result = self.recognise(frame)
-
         if not result.matched:
             self._streak_id, self._streak_count = None, 0
             return None

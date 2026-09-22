@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import argparse
 import base64
+import csv
 import logging
 import re
 import sys
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -35,6 +37,45 @@ log = logging.getLogger("pi-agent")
 POLL_SECONDS = 4          # ความถี่ในการถามเซิร์ฟเวอร์เมื่อยังไม่มีคาบเรียน
 COOLDOWN_SECONDS = 6      # เว้นระยะหลังบันทึกสำเร็จ กันบันทึกซ้ำคนเดิม
 BANNER_SECONDS = 4        # ระยะเวลาแสดงผลลัพธ์บนจอ
+
+
+class PerfLog:
+    """บันทึกเวลาที่ใช้ตรวจสอบใบหน้าแต่ละครั้งลง CSV (raw data สำหรับคำนวณ
+    ค่าเฉลี่ย/สูงสุด/ต่ำสุดในบทที่ 4) พร้อมพิมพ์สรุปเข้า log เป็นระยะ ๆ
+    เพื่อดูความคืบหน้าระหว่างทดสอบสดได้โดยไม่ต้องเปิดไฟล์ CSV
+    """
+
+    def __init__(self, path: str, log_every: int) -> None:
+        self.log_every = log_every
+        self.count = 0
+        self.total = 0.0
+        self.minimum = float("inf")
+        self.maximum = 0.0
+        p = Path(path)
+        is_new = not p.exists()
+        self._file = p.open("a", newline="", encoding="utf-8")
+        self._writer = csv.writer(self._file)
+        if is_new:
+            self._writer.writerow(["timestamp", "duration_sec"])
+
+    def record(self, duration: float) -> None:
+        self.count += 1
+        self.total += duration
+        self.minimum = min(self.minimum, duration)
+        self.maximum = max(self.maximum, duration)
+        self._writer.writerow([time.strftime("%Y-%m-%d %H:%M:%S"), f"{duration:.4f}"])
+        if self.count % self.log_every == 0:
+            self._log_summary("PERF (ระหว่างทดสอบ)")
+            self._file.flush()
+
+    def _log_summary(self, prefix: str) -> None:
+        log.info("%s: จำนวน=%d เฉลี่ย=%.3fวิ ต่ำสุด=%.3fวิ สูงสุด=%.3fวิ",
+                  prefix, self.count, self.total / self.count, self.minimum, self.maximum)
+
+    def close(self) -> None:
+        if self.count:
+            self._log_summary("PERF สรุปสุดท้าย")
+        self._file.close()
 
 
 def decode_data_url(data_url: str) -> np.ndarray | None:
@@ -101,6 +142,10 @@ def main() -> None:
                     help="ย่อภาพก่อนตรวจจับ (0.25 = เร็วสุด, 0.5 = แม่นขึ้นแต่ช้าลง)")
     ap.add_argument("--no-display", action="store_true",
                     help="ไม่เปิดหน้าต่างแสดงผล เหมาะกับการรันเป็นบริการเบื้องหลัง")
+    ap.add_argument("--perf-log", default="face_recognition_timing.csv",
+                    help="ไฟล์ CSV บันทึกเวลาตรวจสอบใบหน้าแต่ละครั้ง สำหรับทำตารางผลทดสอบประสิทธิภาพ")
+    ap.add_argument("--perf-log-every", type=int, default=50,
+                    help="พิมพ์สรุปเวลาเฉลี่ย/สูงสุด/ต่ำสุดเข้า log ทุกกี่ครั้งที่ตรวจสอบใบหน้า")
     args = ap.parse_args()
 
     try:
@@ -110,6 +155,8 @@ def main() -> None:
         log.error("%s", e)
         sys.exit(1)
     log.info("เริ่มรอคาบเรียน")
+
+    perf = PerfLog(args.perf_log, args.perf_log_every)
 
     session: dict | None = None
     recognizer: FaceRecognizer | None = None
@@ -160,10 +207,12 @@ def main() -> None:
             # ---------- จดจำใบหน้าเมื่อมีคาบเรียนเปิดอยู่ ----------
             if session and recognizer and now > cooldown_until:
                 course_code = (session.get("courses") or {}).get("code", "")
+                t0 = time.perf_counter()
                 preview = recognizer.recognise(frame)
+                perf.record(time.perf_counter() - t0)
                 display = draw_overlay(frame, preview, course_code)
 
-                confirmed = recognizer.recognise_stable(frame)
+                confirmed = recognizer.recognise_stable(preview)
                 if confirmed and confirmed.student_id not in checked_in:
                     sid = confirmed.student_id
                     try:
@@ -216,6 +265,7 @@ def main() -> None:
     finally:
         cap.release()
         cv2.destroyAllWindows()
+        perf.close()
 
 
 if __name__ == "__main__":
