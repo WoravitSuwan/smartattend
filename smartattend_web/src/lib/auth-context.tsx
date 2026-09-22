@@ -53,6 +53,17 @@ async function buildUser(authUser: SupabaseAuthUser): Promise<User> {
       .eq('user_id', authUser.id),
   ]);
 
+  // A signed-up account always has a profiles row — it's created by the
+  // same DB trigger that handles the signup itself. If it's missing while
+  // the person still has a (not-yet-expired) session token, the account
+  // was deleted out from under them: PostgREST has no way to know that and
+  // just returns an empty result instead of an error, so without this
+  // check buildUser() would silently fabricate a blank "student" account
+  // instead of signaling that the session is no longer valid.
+  if (!profile) {
+    throw new Error('profile_not_found');
+  }
+
   const meta = (authUser.user_metadata ?? {}) as Record<string, unknown>;
   const baseName = profile?.name ?? (typeof meta.name === 'string' ? meta.name : email);
 
