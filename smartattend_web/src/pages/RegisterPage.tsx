@@ -477,6 +477,9 @@ const RegisterPage = () => {
                 <p className="text-[11px] text-muted-foreground">
                   แนบรูปใบหน้าของคุณตามท่าที่กำหนด — JPG/PNG สูงสุด {MAX_SIZE_MB}MB ต่อไฟล์ แสงสว่างพอ เห็นใบหน้าชัด
                 </p>
+                <p className="text-[11px] text-warning">
+                  ถ้าคุณใส่แว่นตาเป็นประจำ ให้ถ่ายรูปทุกท่าโดย<b>ใส่แว่นตาด้วย</b> (ต้องเป็นแว่นตาคู่เดิมที่จะใส่ตอนสแกนหน้าเข้าเรียน) — การลงทะเบียนไม่ใส่แว่นแต่มาสแกนใส่แว่น มักทำให้ระบบจำใบหน้าไม่ได้
+                </p>
               </div>
 
               <input ref={pickerRef} type="file" accept="image/*" className="hidden"

@@ -43,6 +43,7 @@ import InstructorLeavesPage from "./pages/instructor/InstructorLeavesPage";
 import FaceRegistrationStatusPage from "./pages/instructor/FaceRegistrationStatusPage";
 import ImportRosterPage from "./pages/instructor/ImportRosterPage";
 import CourseRosterPage from "./pages/instructor/CourseRosterPage";
+import CourseDetailPage from "./pages/instructor/CourseDetailPage";
 import StartClassTestPage from "./pages/instructor/StartClassTestPage";
 import NotFound from "./pages/NotFound";
 import AdminLayout from "./components/AdminLayout";
@@ -163,6 +164,7 @@ function AppRoutes() {
       {/* Instructor Routes */}
       <Route path="/instructor" element={<ProtectedRoute role="instructor"><InstructorDashboard /></ProtectedRoute>} />
       <Route path="/instructor/courses" element={<ProtectedRoute role="instructor"><InstructorCoursesPage /></ProtectedRoute>} />
+      <Route path="/instructor/courses/:courseId" element={<ProtectedRoute role="instructor"><CourseDetailPage /></ProtectedRoute>} />
       <Route path="/instructor/attendance" element={<ProtectedRoute role="instructor"><InstructorAttendancePage /></ProtectedRoute>} />
       <Route path="/instructor/attendance/edit" element={<ProtectedRoute role="instructor"><ManualAttendanceEditPage /></ProtectedRoute>} />
       <Route path="/instructor/assignments" element={<ProtectedRoute role="instructor"><AssignmentManagementPage /></ProtectedRoute>} />

@@ -226,6 +226,9 @@ export default function FaceRegistrationPage() {
           <p className="text-xs text-muted-foreground">
             แนบ {REQUIRED_PHOTOS} ท่าทาง: หน้าตรง, หันซ้าย, หันขวา, เงย, ก้ม — ระบบจะเสริมเป็น {REQUIRED_PHOTOS * (1 + AUGMENT_PER_PHOTO)} รูปอัตโนมัติสำหรับเทรน
           </p>
+          <p className="text-[11px] text-warning">
+            ถ้าคุณใส่แว่นตาเป็นประจำ ให้ถ่ายรูปทุกท่าโดย<b>ใส่แว่นตาด้วย</b> (ต้องเป็นแว่นตาคู่เดิมที่จะใส่ตอนสแกนหน้าเข้าเรียน) — การลงทะเบียนไม่ใส่แว่นแต่มาสแกนใส่แว่น มักทำให้ระบบจำใบหน้าไม่ได้
+          </p>
 
           <label className="block cursor-pointer rounded-xl border-2 border-dashed border-border hover:border-primary transition-colors p-6 text-center">
             <input

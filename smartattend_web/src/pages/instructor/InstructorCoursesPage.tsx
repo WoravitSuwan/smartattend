@@ -4,7 +4,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { fetchInstructorCourses } from '@/lib/attendance-data';
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
-import { BookOpen, Users, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { BookOpen, Users, Loader2, ChevronRight } from 'lucide-react';
 
 interface CourseItem {
   id: string;
@@ -17,6 +18,7 @@ interface CourseItem {
 
 const InstructorCoursesPage = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [courses, setCourses] = useState<CourseItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -59,23 +61,25 @@ const InstructorCoursesPage = () => {
           <p className="text-sm text-muted-foreground text-center py-10">ยังไม่มีรายวิชา</p>
         )}
         {courses.map((course, i) => (
-          <motion.div key={course.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}
-            className="bg-card rounded-2xl p-5 shadow-elevated"
+          <motion.button key={course.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}
+            onClick={() => navigate(`/instructor/courses/${course.id}`)}
+            className="w-full text-left bg-card rounded-2xl p-5 shadow-elevated hover:shadow-float transition-shadow"
           >
             <div className="flex items-start gap-3 mb-3">
-              <div className="w-12 h-12 rounded-xl gradient-primary flex items-center justify-center">
+              <div className="w-12 h-12 rounded-xl gradient-primary flex items-center justify-center shrink-0">
                 <BookOpen className="w-6 h-6 text-primary-foreground" />
               </div>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <p className="text-base font-bold font-display text-foreground">{course.code} - {course.name}</p>
                 <p className="text-xs text-muted-foreground">Section {course.section ?? '-'}</p>
               </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-1" />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">ภาคเรียน: {course.semester ?? '-'}</div>
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Users className="w-3.5 h-3.5" /> {course.studentCount} คน</div>
             </div>
-          </motion.div>
+          </motion.button>
         ))}
       </div>
     </MobileLayout>
