@@ -34,6 +34,25 @@ logging.basicConfig(
 )
 log = logging.getLogger("pi-agent")
 
+
+class SupabaseLogHandler(logging.Handler):
+    """ส่งบรรทัด log ของ pi-agent (เหตุการณ์สำคัญ ไม่ใช่ทุกเฟรม) ขึ้น
+    ตาราง device_logs ให้อาจารย์/แอดมินดูการทำงานของ Pi ได้จากหน้าเว็บ
+
+    ข้าม log สรุป PERF (ยิงทุก ๆ ~50 ครั้งที่ตรวจจับใบหน้า ระหว่างคาบเรียน
+    อาจถี่เกินไปสำหรับตารางที่ตั้งใจให้ดูสถานะการทำงานเป็นระยะ ไม่ใช่กราฟ
+    ประสิทธิภาพละเอียด — ข้อมูลนั้นยังอยู่ครบใน CSV/journalctl ของเครื่องอยู่แล้ว)
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        message = self.format(record)
+        if message.startswith("PERF"):
+            return
+        sb.push_log(record.levelname.lower(), message)
+
+
+log.addHandler(SupabaseLogHandler())
+
 POLL_SECONDS = 4          # ความถี่ในการถามเซิร์ฟเวอร์เมื่อยังไม่มีคาบเรียน
 COOLDOWN_SECONDS = 6      # เว้นระยะหลังบันทึกสำเร็จ กันบันทึกซ้ำคนเดิม
 BANNER_SECONDS = 4        # ระยะเวลาแสดงผลลัพธ์บนจอ
@@ -190,6 +209,17 @@ def main() -> None:
                                                 downscale=args.downscale) \
                         if len(db) else None
                     checked_in.clear()
+                elif current and session and current["id"] == session["id"]:
+                    # คาบเดิมยังเปิดอยู่ — อัปเดตข้อมูล เช่น scanning_paused
+                    # ที่อาจารย์อาจกดเปลี่ยนระหว่างคาบ (เดิมโค้ดนี้ไม่เคยรีเฟรช
+                    # เลยค้างค่าตอนพบคาบเรียนครั้งแรกตลอดทั้งคาบ)
+                    was_paused = bool(session.get("scanning_paused"))
+                    session = current
+                    is_paused = bool(session.get("scanning_paused"))
+                    if is_paused and not was_paused:
+                        log.info("อาจารย์สั่งหยุดสแกนชั่วคราว")
+                    elif was_paused and not is_paused:
+                        log.info("อาจารย์สั่งเปิดสแกนต่อ")
                 elif current is None and session is not None:
                     log.info("คาบเรียนปิดแล้ว — กลับไปรอรอบใหม่")
                     session, recognizer = None, None
@@ -204,8 +234,11 @@ def main() -> None:
 
             display = frame
 
-            # ---------- จดจำใบหน้าเมื่อมีคาบเรียนเปิดอยู่ ----------
-            if session and recognizer and now > cooldown_until:
+            # ---------- จดจำใบหน้าเมื่อมีคาบเรียนเปิดอยู่และไม่ถูกสั่งหยุด ----------
+            if session and session.get("scanning_paused"):
+                cv2.putText(display, "หยุดสแกนชั่วคราวโดยอาจารย์", (20, 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (60, 180, 240), 2)
+            elif session and recognizer and now > cooldown_until:
                 course_code = (session.get("courses") or {}).get("code", "")
                 t0 = time.perf_counter()
                 preview = recognizer.recognise(frame)

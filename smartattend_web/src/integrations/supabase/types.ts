@@ -220,6 +220,7 @@ export type Database = {
           instructor_id: string
           late_after_minutes: number
           planned_end_time: string | null
+          scanning_paused: boolean
           started_at: string
           status: string
         }
@@ -230,6 +231,7 @@ export type Database = {
           instructor_id: string
           late_after_minutes?: number
           planned_end_time?: string | null
+          scanning_paused?: boolean
           started_at?: string
           status?: string
         }
@@ -240,6 +242,7 @@ export type Database = {
           instructor_id?: string
           late_after_minutes?: number
           planned_end_time?: string | null
+          scanning_paused?: boolean
           started_at?: string
           status?: string
         }
@@ -342,6 +345,30 @@ export type Database = {
           device_code?: string
           room?: string | null
           seen_at?: string
+        }
+        Relationships: []
+      }
+      device_logs: {
+        Row: {
+          created_at: string
+          device_code: string
+          id: number
+          level: string
+          message: string
+        }
+        Insert: {
+          created_at?: string
+          device_code: string
+          id?: number
+          level?: string
+          message: string
+        }
+        Update: {
+          created_at?: string
+          device_code?: string
+          id?: number
+          level?: string
+          message?: string
         }
         Relationships: []
       }

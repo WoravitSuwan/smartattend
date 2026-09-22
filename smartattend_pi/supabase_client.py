@@ -64,7 +64,7 @@ def _upsert(table: str, payload: Any) -> list[dict]:
 def get_open_session() -> dict | None:
     """หาคาบเรียนที่เปิดอยู่ ถ้าตั้งค่า ROOM ไว้จะกรองเฉพาะห้องนั้น"""
     params = {
-        "select": "id,course_id,started_at,late_after_minutes,status,"
+        "select": "id,course_id,started_at,late_after_minutes,status,scanning_paused,"
                   "courses(code,name,room)",
         "status": "eq.open",
         "order": "started_at.desc",
@@ -163,3 +163,17 @@ def heartbeat() -> None:
         })
     except Exception as e:  # noqa: BLE001 — heartbeat ต้องไม่ล้มระบบหลัก
         log.debug("ส่ง heartbeat ไม่สำเร็จ (ข้ามได้): %s", e)
+
+
+def push_log(level: str, message: str) -> None:
+    """ส่งบรรทัด log ที่มีความหมาย (ไม่ใช่ทุกเฟรม) ขึ้นฐานข้อมูล
+    ให้อาจารย์/แอดมินดูการทำงานของ Pi ได้จากหน้าเว็บโดยไม่ต้อง SSH เข้าเครื่อง
+    """
+    try:
+        _post("device_logs", {
+            "device_code": DEVICE_CODE,
+            "level": level,
+            "message": message[:2000],
+        })
+    except Exception as e:  # noqa: BLE001 — ส่ง log ไม่สำเร็จต้องไม่ล้มระบบหลัก
+        log.debug("ส่ง log ขึ้นเซิร์ฟเวอร์ไม่สำเร็จ (ข้ามได้): %s", e)

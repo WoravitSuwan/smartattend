@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import MobileLayout from '@/components/MobileLayout';
+import PiStatusPanel from '@/components/PiStatusPanel';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth-context';
-import { Loader2, PlayCircle, StopCircle, Users, Clock, AlarmClock, Ban } from 'lucide-react';
+import { Loader2, PlayCircle, StopCircle, PauseCircle, Users, Clock, AlarmClock, Ban } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Course { id: string; code: string; name: string; section: string | null; }
@@ -10,6 +11,7 @@ interface Session {
   id: string; course_id: string; status: string;
   started_at: string; closed_at: string | null;
   late_after_minutes: number; planned_end_time: string | null;
+  scanning_paused: boolean;
 }
 interface Record {
   id: string;
@@ -154,6 +156,18 @@ export default function StartClassTestPage() {
       const err = e as { message?: string };
       toast.error(err.message ?? 'ยกเลิกคลาสไม่สำเร็จ');
     } finally { setCancelling(false); }
+  };
+
+  const togglePause = async () => {
+    if (!activeSession) return;
+    const next = !activeSession.scanning_paused;
+    const { error } = await supabase
+      .from('class_sessions')
+      .update({ scanning_paused: next })
+      .eq('id', activeSession.id);
+    if (error) { toast.error('สั่งงาน Pi ไม่สำเร็จ'); return; }
+    setActiveSession(s => (s ? { ...s, scanning_paused: next } : s));
+    toast.success(next ? 'สั่งหยุดสแกนชั่วคราวแล้ว' : 'สั่งเปิดสแกนต่อแล้ว');
   };
 
   const closeClass = async () => {
@@ -364,6 +378,23 @@ export default function StartClassTestPage() {
                 )}
               </div>
               <button
+                onClick={togglePause}
+                disabled={loading}
+                className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-lg font-semibold disabled:opacity-50 ${
+                  activeSession.scanning_paused
+                    ? 'bg-primary text-primary-foreground'
+                    : 'border border-warning/40 text-warning'
+                }`}
+              >
+                {activeSession.scanning_paused ? <PlayCircle className="w-4 h-4" /> : <PauseCircle className="w-4 h-4" />}
+                {activeSession.scanning_paused ? 'เปิดสแกนต่อ' : 'หยุดสแกนชั่วคราว'}
+              </button>
+              {activeSession.scanning_paused && (
+                <p className="text-[11px] text-warning text-center">
+                  Pi หยุดสแกนใบหน้าอยู่ — นักศึกษาจะเช็คชื่อไม่ได้จนกว่าจะกดเปิดสแกนต่อ
+                </p>
+              )}
+              <button
                 onClick={closeClass}
                 disabled={loading}
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-destructive text-destructive-foreground font-semibold disabled:opacity-50"
@@ -374,6 +405,8 @@ export default function StartClassTestPage() {
             </>
           )}
         </div>
+
+        <PiStatusPanel />
 
         {activeSession && (
           <div className="bg-card rounded-2xl border border-border p-4">
