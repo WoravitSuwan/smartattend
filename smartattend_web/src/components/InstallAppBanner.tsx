@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Download, Share, Plus, X } from 'lucide-react';
+
+/** Public auth pages are short forms with a primary button near the bottom
+ *  of the screen — the fixed-position install banner would sit right on
+ *  top of it (e.g. covering the "เข้าสู่ระบบ" button), so it's suppressed
+ *  there and only offered once the person is inside the app. */
+const SUPPRESSED_PATHS = ['/', '/register', '/reset-password'];
 
 /** Chrome fires this before showing its own install prompt. */
 interface BeforeInstallPromptEvent extends Event {
@@ -11,9 +18,11 @@ interface BeforeInstallPromptEvent extends Event {
 const DISMISS_KEY = 'smartattend-install-dismissed';
 
 const InstallAppBanner = () => {
+  const location = useLocation();
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
   const [showIosHelp, setShowIosHelp] = useState(false);
   const [visible, setVisible] = useState(false);
+  const suppressed = SUPPRESSED_PATHS.includes(location.pathname);
 
   const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
   const isStandalone =
@@ -61,7 +70,7 @@ const InstallAppBanner = () => {
     setVisible(false);
   };
 
-  if (!visible) return null;
+  if (!visible || suppressed) return null;
 
   return (
     <AnimatePresence>
