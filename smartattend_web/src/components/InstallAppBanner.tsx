@@ -78,7 +78,13 @@ const InstallAppBanner = () => {
         initial={{ opacity: 0, y: 40 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 40 }}
-        className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-sm"
+        // Centered via left-0/right-0/mx-auto rather than left-1/2 + a
+        // -translate-x-1/2 class: Framer Motion writes its own inline
+        // `transform` for the y animation, which overwrites (not merges
+        // with) any Tailwind transform-utility class on the same element —
+        // that silently dropped the -50% x-shift and pushed the whole
+        // banner off-screen to the right, out of reach in portrait.
+        className="fixed bottom-24 left-0 right-0 mx-auto z-40 w-[calc(100%-2rem)] max-w-sm"
       >
         <div className="glass-card-elevated rounded-2xl p-4">
           {!showIosHelp ? (
