@@ -279,8 +279,28 @@ export function attendanceScore(rate: number | null, maxScore: number): number {
   return Math.round((r / 100) * maxScore * 100) / 100;
 }
 
+/** วิธีจัดการคะแนนที่เกินคะแนนเต็มใหม่เมื่อลดคะแนนเต็มของหัวข้อ */
+export type OverflowPolicy =
+  /** ปฏิเสธการแก้ไข ให้อาจารย์ตัดสินใจก่อน (ค่าเริ่มต้น) */
+  | 'reject'
+  /** ปรับคะแนนทุกคนตามอัตราส่วน รักษาลำดับที่และสัดส่วนไว้ */
+  | 'rescale'
+  /** ตัดเฉพาะคนที่เกินให้เท่าเพดานใหม่ */
+  | 'clamp';
+
+export interface SaveGradeItemResult {
+  item_id: string;
+  /** จำนวนคะแนนนักศึกษาที่ถูกปรับจากการเปลี่ยนคะแนนเต็ม */
+  adjusted: number;
+  action: 'created' | 'updated';
+  on_overflow?: OverflowPolicy;
+}
+
 /** สร้าง/แก้ไขหัวข้อคะแนน ผ่าน RPC ที่ตรวจสิทธิ์และบันทึก audit log ให้
- *  ส่ง itemId มาด้วย = แก้ไขหัวข้อเดิม, ไม่ส่ง = สร้างใหม่ */
+ *  ส่ง itemId มาด้วย = แก้ไขหัวข้อเดิม, ไม่ส่ง = สร้างใหม่
+ *
+ *  onOverflow ค่าเริ่มต้นเป็น 'reject' โดยเจตนา — การลดคะแนนเต็มแล้วแก้คะแนน
+ *  ของนักศึกษาให้เองเงียบ ๆ เป็นการตัดสินใจแทนอาจารย์ ต้องให้เลือกก่อนทุกครั้ง */
 export async function saveGradeItem(params: {
   courseId: string;
   itemId?: string | null;
@@ -288,6 +308,8 @@ export async function saveGradeItem(params: {
   category: GradeCategory;
   maxScore: number;
   weight: number;
+  onOverflow?: OverflowPolicy;
+  reason?: string | null;
 }) {
   return supabase.rpc('save_grade_item', {
     _course_id: params.courseId,
@@ -296,14 +318,28 @@ export async function saveGradeItem(params: {
     _category: params.category,
     _max_score: params.maxScore,
     _weight: params.weight,
+    _on_overflow: params.onOverflow ?? 'reject',
+    _reason: params.reason ?? undefined,
   });
 }
 
+/** จำนวนคะแนนที่บันทึกไว้แล้วในหัวข้อหนึ่ง (ถามฐานข้อมูล ไม่นับจากที่โหลดมา
+ *  เพราะหน้าจออาจโหลดมาไม่ครบทุกคน) */
+export async function gradeItemScoreCount(itemId: string): Promise<number> {
+  const { data, error } = await supabase.rpc('grade_item_score_count', { _item_id: itemId });
+  if (error) { console.warn('gradeItemScoreCount', error); return 0; }
+  return Number(data ?? 0);
+}
+
 /** ลบหัวข้อคะแนน ผ่าน RPC ที่ตรวจสิทธิ์และบันทึก audit log
+ *  หัวข้อที่มีคะแนนอยู่แล้ว ต้องส่ง confirmName ให้ตรงชื่อหัวข้อ
  *  คืนจำนวนคะแนนนักศึกษาที่ถูกลบไปพร้อมกัน */
-export async function deleteGradeItem(itemId: string, reason?: string | null) {
+export async function deleteGradeItem(
+  itemId: string, reason?: string | null, confirmName?: string | null,
+) {
   return supabase.rpc('delete_grade_item', {
     _item_id: itemId,
     _reason: reason ?? undefined,
+    _confirm_name: confirmName ?? undefined,
   });
 }

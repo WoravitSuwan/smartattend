@@ -4,9 +4,10 @@ import { logAudit } from '@/lib/audit-log';
 import { fetchInstructorCourses, fetchSummary, type SummaryRow } from '@/lib/attendance-data';
 import {
   attendanceScore, categoryLabels, deleteGradeItem, fetchGradeItems, fetchStudentGrades,
-  gradeColor, fetchGradeScale, isFullyGraded, letterGradeFrom, maxScoreOf, publishFinalGrades,
-  saveGradeItem, upsertGrade, validateScore, weightedTotal,
-  type GradeCategory, type GradeItem, type GradeScaleRow, type StudentGrade,
+  gradeColor, fetchGradeScale, gradeItemScoreCount, isFullyGraded, letterGradeFrom, maxScoreOf,
+  publishFinalGrades, saveGradeItem, upsertGrade, validateScore, weightedTotal,
+  type GradeCategory, type GradeItem, type GradeScaleRow, type OverflowPolicy,
+  type StudentGrade,
 } from '@/lib/grade-data';
 import { supabase } from '@/integrations/supabase/client';
 import * as XLSX from 'xlsx';
@@ -15,6 +16,7 @@ import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, Sparkles, Loader2, Save, Megaphone, Download, Upload, X } from 'lucide-react';
 import GradeScalePanel from '@/components/GradeScalePanel';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface Course { id: string; code: string; name: string }
 interface Student { id: string; name: string; code: string }
@@ -45,6 +47,13 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
   const [showNew, setShowNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null); // null = สร้างใหม่
   const [savingItem, setSavingItem] = useState(false);
+  const [deletingItem, setDeletingItem] = useState(false);
+  /** ถามวิธีจัดการคะแนนที่เกินเพดานใหม่ */
+  const [overflowAsk, setOverflowAsk] = useState<
+    { count: number; oldMax: number | null; newMax: number } | null>(null);
+  /** ถามยืนยันการลบหัวข้อ */
+  const [deleteAsk, setDeleteAsk] = useState<{ item: GradeItem; count: number } | null>(null);
+  const [publishAsk, setPublishAsk] = useState(false);
   const [newName, setNewName] = useState('');
   const [newCat, setNewCat] = useState<GradeCategory>('assignment');
   const [newMax, setNewMax] = useState('100');
@@ -125,18 +134,17 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
     setShowNew(true);
   };
 
-  const ITEM_ERRORS: Record<string, string> = {
-    name_required: 'กรุณาระบุชื่อหัวข้อคะแนน',
-    invalid_max_score: 'คะแนนเต็มต้องมากกว่า 0',
-    invalid_weight: 'น้ำหนักต้องอยู่ระหว่าง 0 - 100%',
-    invalid_category: 'ประเภทคะแนนไม่ถูกต้อง',
-    grade_item_not_found: 'ไม่พบหัวข้อคะแนนนี้ (อาจถูกลบไปแล้ว)',
-    forbidden: 'ไม่มีสิทธิ์แก้ไขคะแนนของรายวิชานี้',
-  };
+  /** ข้อความผิดพลาดจากฐานข้อมูลเป็นภาษาไทยอยู่แล้ว (RPC ใช้ RAISE พร้อมข้อความ)
+   *  จึงส่งต่อให้ผู้ใช้ตรง ๆ ได้ ถ้าไม่มีข้อความจึงใช้ข้อความกลาง */
+  const dbMessage = (err: { message?: string } | null, fallback: string) =>
+    err?.message?.trim() ? err.message : fallback;
 
   /** บันทึกหัวข้อคะแนน — สร้างใหม่ถ้า editingId เป็น null ไม่งั้นแก้ไขหัวข้อเดิม
-   *  ผ่าน RPC ที่ตรวจสิทธิ์และลง audit log ให้ (เดิม insert ลงตารางตรง ๆ) */
-  const saveItem = async () => {
+   *  ผ่าน RPC ที่ตรวจสิทธิ์และลง audit log ให้ (เดิม insert ลงตารางตรง ๆ)
+   *
+   *  onOverflow: ครั้งแรกส่ง 'reject' เสมอ ถ้าฐานข้อมูลบอกว่ามีคะแนนเกินเพดานใหม่
+   *  จะเปิดไดอะล็อกให้อาจารย์เลือกวิธี แล้วเรียกซ้ำด้วยวิธีที่เลือก */
+  const saveItem = async (onOverflow: OverflowPolicy = 'reject') => {
     const name = newName.trim();
     const max = Number(newMax);
     const weight = Number(newWeight);
@@ -146,47 +154,62 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
       toast.error('น้ำหนักต้องอยู่ระหว่าง 0 - 100%'); return;
     }
 
-    // ลดคะแนนเต็มลง = คะแนนที่บันทึกไว้เกินเต็มใหม่จะถูกปรับลงมา บอกก่อนเสมอ
-    if (editingId) {
-      const before = items.find(i => i.id === editingId);
-      const beforeMax = before ? maxScoreOf(before) : null;
-      const over = beforeMax != null && max < beforeMax
-        ? students.filter(s => {
-            const v = initialGrades[`${editingId}:${s.id}`];
-            return v != null && v > max;
-          }).length
-        : 0;
-      if (over > 0 && !window.confirm(
-        `ลดคะแนนเต็มจาก ${before?.max_score} เป็น ${max} จะทำให้คะแนนของนักศึกษา ${over} คนที่เกินเต็มใหม่ถูกปรับลงมาเป็น ${max} (บันทึกไว้ใน audit log) ยืนยันหรือไม่?`,
-      )) return;
-    }
-
     setSavingItem(true);
-    const { error } = await saveGradeItem({
+    const { data, error } = await saveGradeItem({
       courseId, itemId: editingId, name, category: newCat, maxScore: max, weight,
+      onOverflow, reason: reason.trim() || undefined,
     });
     setSavingItem(false);
+
     if (error) {
+      // ฐานข้อมูลปฏิเสธเพราะมีคะแนนเกินเพดานใหม่ → ถามอาจารย์ว่าจะทำอย่างไร
+      if (onOverflow === 'reject' && editingId && /เกินคะแนนเต็มใหม่/.test(error.message ?? '')) {
+        const before = items.find(i => i.id === editingId);
+        const n = Number((error.message ?? '').match(/นักศึกษา (\d+) คน/)?.[1] ?? 0);
+        setOverflowAsk({ count: n, oldMax: before ? Number(before.max_score) : null, newMax: max });
+        return;
+      }
       console.error(error);
-      const key = Object.keys(ITEM_ERRORS).find(k => error.message?.includes(k));
-      toast.error(key ? ITEM_ERRORS[key] : 'บันทึกหัวข้อคะแนนไม่สำเร็จ');
+      toast.error(dbMessage(error, 'บันทึกหัวข้อคะแนนไม่สำเร็จ'));
       return;
     }
-    toast.success(editingId ? 'แก้ไขหัวข้อคะแนนแล้ว' : 'เพิ่มหัวข้อคะแนนแล้ว');
+
+    const adjusted = Number((data as { adjusted?: number } | null)?.adjusted ?? 0);
+    toast.success(
+      (editingId ? 'แก้ไขหัวข้อคะแนนแล้ว' : 'เพิ่มหัวข้อคะแนนแล้ว')
+      + (adjusted > 0 ? ` · ปรับคะแนนของนักศึกษา ${adjusted} คน (บันทึกในประวัติแล้ว)` : ''),
+    );
+    setOverflowAsk(null);
+    setReason('');
     closeItemForm();
     load();
   };
 
-  const removeItem = async (it: GradeItem) => {
-    const n = savedScoreCount(it.id);
-    const warn = n > 0
-      ? `ลบหัวข้อ "${it.name}" จะลบคะแนนของนักศึกษา ${n} คนในหัวข้อนี้ทิ้งไปด้วย และกู้คืนไม่ได้\n\nถ้าเพียงต้องการแก้ชื่อ คะแนนเต็ม หรือน้ำหนัก ให้กดปุ่มแก้ไข (ดินสอ) แทน — คะแนนจะไม่หาย\n\nยืนยันการลบ?`
-      : `ลบหัวข้อ "${it.name}"?`;
-    if (!window.confirm(warn)) return;
-    const { data, error } = await deleteGradeItem(it.id);
-    if (error) { console.error(error); toast.error('ลบไม่สำเร็จ'); return; }
-    toast.success(Number(data) > 0 ? `ลบหัวข้อและคะแนน ${data} รายการแล้ว` : 'ลบหัวข้อคะแนนแล้ว');
-    if (editingId === it.id) closeItemForm();
+  /** ลบหัวข้อคะแนน — หัวข้อที่มีคะแนนอยู่ต้องพิมพ์ชื่อหัวข้อยืนยัน
+   *  จำนวนคะแนนถามจากฐานข้อมูล ไม่นับจากที่โหลดมา เพราะหน้าจออาจโหลดไม่ครบทุกคน */
+  const askRemoveItem = async (it: GradeItem) => {
+    const n = await gradeItemScoreCount(it.id);
+    setDeleteAsk({ item: it, count: n });
+  };
+
+  const doRemoveItem = async (confirmName: string | null) => {
+    if (!deleteAsk) return;
+    setDeletingItem(true);
+    const { data, error } = await deleteGradeItem(
+      deleteAsk.item.id, reason.trim() || undefined, confirmName,
+    );
+    setDeletingItem(false);
+    if (error) {
+      console.error(error);
+      toast.error(dbMessage(error, 'ลบไม่สำเร็จ'));
+      return;
+    }
+    toast.success(Number(data) > 0
+      ? `ลบหัวข้อและคะแนน ${data} รายการแล้ว (บันทึกในประวัติ)`
+      : 'ลบหัวข้อคะแนนแล้ว');
+    if (editingId === deleteAsk.item.id) closeItemForm();
+    setDeleteAsk(null);
+    setReason('');
     load();
   };
 
@@ -262,7 +285,7 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
   };
 
   const doPublish = async () => {
-    if (!window.confirm('ประกาศผลสอบปลายภาคและเกรดรวม? นักศึกษาทุกคนในวิชานี้จะเห็นคะแนนสอบปลายภาคทันทีและได้รับการแจ้งเตือน')) return;
+    setPublishAsk(false);
     setPublishing(true);
     const { error } = await publishFinalGrades(courseId);
     setPublishing(false);
@@ -383,7 +406,7 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
                     className="p-1 rounded-lg hover:bg-muted">
                     <Pencil className="w-3.5 h-3.5 text-primary" />
                   </button>
-                  <button onClick={() => removeItem(it)} title="ลบหัวข้อคะแนน"
+                  <button onClick={() => askRemoveItem(it)} title="ลบหัวข้อคะแนน"
                     className="p-1 rounded-lg hover:bg-muted">
                     <Trash2 className="w-3.5 h-3.5 text-destructive" />
                   </button>
@@ -418,7 +441,7 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
                       หัวข้อนี้มีคะแนนบันทึกไว้แล้ว {savedScoreCount(editingId)} คน — แก้ชื่อ/น้ำหนักได้โดยคะแนนไม่หาย
                     </p>
                   )}
-                  <button onClick={saveItem} disabled={savingItem}
+                  <button onClick={() => saveItem()} disabled={savingItem}
                     className="w-full inline-flex items-center justify-center gap-1.5 py-2 rounded-xl gradient-primary text-primary-foreground text-xs font-semibold disabled:opacity-50">
                     {savingItem && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                     {editingId ? 'บันทึกการแก้ไข' : 'สร้างหัวข้อคะแนน'}
@@ -463,7 +486,7 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
             </button>
 
             {items.some(i => i.category === 'final') && (
-              <button onClick={doPublish} disabled={publishing || published}
+              <button onClick={() => setPublishAsk(true)} disabled={publishing || published}
                 className={`w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold disabled:opacity-70 ${
                   published ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning border border-warning/30'
                 }`}>
@@ -561,6 +584,85 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
             )}
           </>
         )}
+
+        {/* ── ลดคะแนนเต็มแล้วมีคะแนนเกิน: ให้อาจารย์เลือกวิธี ไม่ตัดสินใจแทน ── */}
+        <ConfirmDialog
+          open={!!overflowAsk}
+          busy={savingItem}
+          title="มีคะแนนที่เกินคะแนนเต็มใหม่"
+          description={overflowAsk && (
+            <>
+              <p>
+                คะแนนของนักศึกษา <b>{overflowAsk.count} คน</b> เกินคะแนนเต็มใหม่
+                {overflowAsk.oldMax != null && <> (เดิมเต็ม {overflowAsk.oldMax})</> } เต็มใหม่ {overflowAsk.newMax}
+              </p>
+              <p>เลือกวิธีจัดการ — ทุกวิธีบันทึกคะแนนเดิมและคะแนนใหม่ไว้ในประวัติทุกแถว</p>
+            </>
+          )}
+          choices={[
+            {
+              value: 'rescale', label: 'ปรับตามอัตราส่วนทุกคน', tone: 'primary',
+              detail: overflowAsk?.oldMax
+                ? `คูณด้วย ${overflowAsk.newMax}/${overflowAsk.oldMax} — ลำดับที่ไม่เปลี่ยน`
+                : 'ลำดับที่ไม่เปลี่ยน',
+            },
+            {
+              value: 'clamp', label: 'ตัดเฉพาะคนที่เกิน', tone: 'muted',
+              detail: `ให้เท่ากับ ${overflowAsk?.newMax ?? ''} — คนที่เกินจะได้เท่ากันหมด`,
+            },
+          ]}
+          cancelLabel="ยกเลิกการแก้ไข"
+          onCancel={() => setOverflowAsk(null)}
+          onConfirm={v => saveItem(v as OverflowPolicy)}
+        />
+
+        {/* ── ลบหัวข้อที่มีคะแนน: ต้องพิมพ์ชื่อหัวข้อยืนยัน ── */}
+        <ConfirmDialog
+          open={!!deleteAsk}
+          busy={deletingItem}
+          title={`ลบหัวข้อ "${deleteAsk?.item.name ?? ''}"`}
+          description={deleteAsk && (
+            <>
+              {deleteAsk.count > 0 ? (
+                <>
+                  <p className="text-destructive font-medium">
+                    จะลบคะแนนของนักศึกษา {deleteAsk.count} คนในหัวข้อนี้ทิ้งไปด้วย และกู้คืนไม่ได้
+                  </p>
+                  <p>
+                    ถ้าเพียงต้องการแก้ชื่อ ประเภท คะแนนเต็ม หรือน้ำหนัก ให้กดปุ่มดินสอแทน
+                    คะแนนจะไม่หาย
+                  </p>
+                </>
+              ) : (
+                <p>หัวข้อนี้ยังไม่มีคะแนนของนักศึกษา</p>
+              )}
+              <p className="text-[10px]">การลบจะถูกบันทึกในประวัติว่าใครลบ ลบอะไร กระทบกี่คน และเมื่อไร</p>
+            </>
+          )}
+          requireText={deleteAsk && deleteAsk.count > 0 ? deleteAsk.item.name : null}
+          requireTextLabel={deleteAsk && deleteAsk.count > 0
+            ? `พิมพ์ชื่อหัวข้อ "${deleteAsk.item.name}" เพื่อยืนยัน`
+            : undefined}
+          choices={[{ value: 'delete', label: 'ลบหัวข้อคะแนน', tone: 'danger' }]}
+          onCancel={() => setDeleteAsk(null)}
+          onConfirm={() => doRemoveItem(deleteAsk?.count ? deleteAsk.item.name : null)}
+        />
+
+        {/* ── ประกาศผลปลายภาค ── */}
+        <ConfirmDialog
+          open={publishAsk}
+          busy={publishing}
+          title="ประกาศผลสอบปลายภาคและเกรดรวม"
+          description={
+            <>
+              <p>นักศึกษาทุกคนในวิชานี้จะเห็นคะแนนสอบปลายภาคทันทีและได้รับการแจ้งเตือน</p>
+              <p>ก่อนประกาศ คะแนนปลายภาคถูกปิดบังที่ระดับฐานข้อมูล และยังไม่มีตัวอักษรเกรดปรากฏ</p>
+            </>
+          }
+          choices={[{ value: 'publish', label: 'ประกาศผล', tone: 'primary' }]}
+          onCancel={() => setPublishAsk(false)}
+          onConfirm={doPublish}
+        />
       </div>
   );
 

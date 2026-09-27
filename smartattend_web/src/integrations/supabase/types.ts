@@ -1095,11 +1095,14 @@ export type Database = {
           _max_score: number
           _weight: number
           _item_id?: string
+          _on_overflow?: string
+          _reason?: string
         }
-        Returns: string
+        Returns: Json
       }
+      grade_item_score_count: { Args: { _item_id: string }; Returns: number }
       delete_grade_item: {
-        Args: { _item_id: string; _reason?: string }
+        Args: { _item_id: string; _reason?: string; _confirm_name?: string }
         Returns: number
       }
       save_grade_structure: {
