@@ -4,7 +4,7 @@ import { fetchInstructorCourses, fetchSummary, type SummaryRow } from '@/lib/att
 import {
   attendanceScore, categoryLabels, deleteGradeItem, fetchGradeItems, fetchStudentGrades,
   gradeColor, fetchGradeScale, gradeItemScoreCount, isFullyGraded, letterGradeFrom, maxScoreOf,
-  publishFinalGrades, saveGradeItem, saveStudentGrades, validateScore, weightedTotal,
+  saveGradeItem, saveStudentGrades, validateScore, weightedTotal,
   type GradeCategory, type GradeItem, type GradeScaleRow, type OverflowPolicy,
   type StudentGrade,
 } from '@/lib/grade-data';
@@ -13,11 +13,12 @@ import * as XLSX from 'xlsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Sparkles, Loader2, Save, Megaphone, Download, Upload, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Sparkles, Loader2, Save, Download, Upload, X } from 'lucide-react';
 import GradeScalePanel from '@/components/GradeScalePanel';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import GradeStructurePanel from '@/components/GradeStructurePanel';
 import { recalcAttendanceScores, type RecalcResult } from '@/lib/attendance-score-data';
+import PublishGradesPanel from '@/components/PublishGradesPanel';
 
 interface Course { id: string; code: string; name: string }
 interface Student { id: string; name: string; code: string }
@@ -39,9 +40,9 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [published, setPublished] = useState(false);
+  const [gradesLocked, setGradesLocked] = useState(false);
   const [scale, setScale] = useState<GradeScaleRow[]>([]);
   const [scaleIsCourseSpecific, setScaleIsCourseSpecific] = useState(false);
-  const [publishing, setPublishing] = useState(false);
   const [reason, setReason] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -54,7 +55,6 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
     { count: number; oldMax: number | null; newMax: number } | null>(null);
   /** ถามยืนยันการลบหัวข้อ */
   const [deleteAsk, setDeleteAsk] = useState<{ item: GradeItem; count: number } | null>(null);
-  const [publishAsk, setPublishAsk] = useState(false);
   /** ข้อผิดพลาดรายช่องที่ฐานข้อมูลคืนมาจากการบันทึกครั้งล่าสุด */
   const [serverErrors, setServerErrors] = useState<Record<string, string>>({});
   const [recalcing, setRecalcing] = useState(false);
@@ -102,8 +102,9 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
     setInitialGrades(map);
 
     const { data: courseRow } = await supabase
-      .from('courses').select('final_grade_published').eq('id', courseId).maybeSingle();
+      .from('courses').select('final_grade_published, grades_locked').eq('id', courseId).maybeSingle();
     setPublished(!!courseRow?.final_grade_published);
+    setGradesLocked(!!(courseRow as { grades_locked?: boolean } | null)?.grades_locked);
 
     const sc = await fetchGradeScale(courseId);
     setScale(sc.scale);
@@ -317,16 +318,6 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
     setReason('');
     toast.success(`บันทึกคะแนน ${result?.saved ?? 0} รายการเรียบร้อย นักศึกษาจะได้รับการแจ้งเตือน`);
     load();
-  };
-
-  const doPublish = async () => {
-    setPublishAsk(false);
-    setPublishing(true);
-    const { error } = await publishFinalGrades(courseId);
-    setPublishing(false);
-    if (error) { toast.error('ประกาศผลไม่สำเร็จ'); return; }
-    setPublished(true);
-    toast.success('ประกาศผลคะแนนปลายภาคแล้ว');
   };
 
   const exportExcel = () => {
@@ -573,21 +564,12 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
               {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} บันทึกคะแนน
             </button>
 
-            {items.some(i => i.category === 'final') && (
-              <button onClick={() => setPublishAsk(true)}
-                disabled={publishing || published || weightIncomplete}
-                title={weightIncomplete ? `น้ำหนักรวมต้องเท่ากับ 100% ก่อนประกาศผล (ตอนนี้ ${totalWeight}%)` : undefined}
-                className={`w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold disabled:opacity-70 ${
-                  published ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning border border-warning/30'
-                }`}>
-                {publishing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
-                {published
-                  ? 'ประกาศผลปลายภาคแล้ว'
-                  : weightIncomplete
-                    ? `ประกาศผลไม่ได้ — น้ำหนักรวม ${totalWeight}% ยังไม่ครบ 100%`
-                    : 'ประกาศผลสอบปลายภาค'}
-              </button>
-            )}
+            <PublishGradesPanel
+              courseId={courseId}
+              published={published}
+              locked={gradesLocked}
+              onChanged={load}
+            />
 
             {loading && <p className="text-center text-sm text-muted-foreground py-8">กำลังโหลด...</p>}
             {!loading && students.length === 0 && (
@@ -742,21 +724,6 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
           onConfirm={() => doRemoveItem(deleteAsk?.count ? deleteAsk.item.name : null)}
         />
 
-        {/* ── ประกาศผลปลายภาค ── */}
-        <ConfirmDialog
-          open={publishAsk}
-          busy={publishing}
-          title="ประกาศผลสอบปลายภาคและเกรดรวม"
-          description={
-            <>
-              <p>นักศึกษาทุกคนในวิชานี้จะเห็นคะแนนสอบปลายภาคทันทีและได้รับการแจ้งเตือน</p>
-              <p>ก่อนประกาศ คะแนนปลายภาคถูกปิดบังที่ระดับฐานข้อมูล และยังไม่มีตัวอักษรเกรดปรากฏ</p>
-            </>
-          }
-          choices={[{ value: 'publish', label: 'ประกาศผล', tone: 'primary' }]}
-          onCancel={() => setPublishAsk(false)}
-          onConfirm={doPublish}
-        />
       </div>
   );
 

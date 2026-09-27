@@ -332,6 +332,9 @@ export type Database = {
           code: string
           created_at: string
           final_grade_published: boolean
+          grades_locked: boolean
+          grades_unlocked_at: string | null
+          grades_unlock_reason: string | null
           id: string
           instructor_id: string
           name: string
@@ -344,6 +347,9 @@ export type Database = {
           code: string
           created_at?: string
           final_grade_published?: boolean
+          grades_locked?: boolean
+          grades_unlocked_at?: string | null
+          grades_unlock_reason?: string | null
           id?: string
           instructor_id: string
           name: string
@@ -356,6 +362,9 @@ export type Database = {
           code?: string
           created_at?: string
           final_grade_published?: boolean
+          grades_locked?: boolean
+          grades_unlocked_at?: string | null
+          grades_unlock_reason?: string | null
           id?: string
           instructor_id?: string
           name?: string
@@ -1086,7 +1095,19 @@ export type Database = {
         }
         Returns: undefined
       }
-      publish_final_grades: { Args: { _course_id: string }; Returns: undefined }
+      publish_final_grades: {
+        Args: {
+          _course_id: string
+          _force?: boolean
+          _reason?: string
+          _special?: Json
+        }
+        Returns: Json
+      }
+      publish_readiness: { Args: { _course_id: string }; Returns: Json }
+      unlock_course_grades: { Args: { _course_id: string; _reason: string }; Returns: undefined }
+      relock_course_grades: { Args: { _course_id: string }; Returns: number }
+      course_grades_locked: { Args: { _course_id: string }; Returns: boolean }
       save_grade_item: {
         Args: {
           _course_id: string
