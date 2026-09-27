@@ -27,8 +27,27 @@ export interface SubmissionRow {
   feedback: string | null;
   status: SubmissionStatus;
   graded_at: string | null;
+  /** จำนวนวันที่ส่งช้า คำนวณโดยเซิร์ฟเวอร์ */
+  late_days: number | null;
+  /** คะแนนที่ถูกหักเพราะส่งช้า */
+  penalty_points: number | null;
+  /** คะแนนสุทธิ = score - penalty_points (ค่านี้คือค่าที่เข้าตารางคะแนน) */
+  net_score: number | null;
+  late_penalty_waived: boolean;
+  late_waiver_reason: string | null;
   studentName?: string;
   studentCode?: string;
+}
+
+/** ยกเว้น/ยกเลิกการยกเว้นการหักคะแนนส่งช้าเป็นรายคน */
+export async function waiveLatePenalty(
+  submissionId: string, waived: boolean, reason?: string | null,
+) {
+  return supabase.rpc('waive_late_penalty', {
+    _submission_id: submissionId,
+    _waived: waived,
+    _reason: reason ?? undefined,
+  });
 }
 
 export const MAX_FILE_SIZE = 20 * 1024 * 1024;

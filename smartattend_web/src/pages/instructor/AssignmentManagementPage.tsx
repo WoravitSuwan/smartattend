@@ -7,6 +7,8 @@ import {
   type AssignmentRow,
 } from '@/lib/assignment-data';
 import { supabase } from '@/integrations/supabase/client';
+import { calcModeLabels, fetchComponents } from '@/lib/grade-structure-data';
+import type { GradeComponent } from '@/lib/grade-structure';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Plus, FileText, Calendar, Users, Trash2, Loader2, X, Paperclip } from 'lucide-react';
@@ -26,7 +28,13 @@ const AssignmentManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: str
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ title: '', description: '', due_at: '', max_score: '100' });
+  const [form, setForm] = useState({
+    title: '', description: '', due_at: '', max_score: '100',
+    component_id: '', counts_toward_grade: true,
+    late_penalty_per_day: '', late_penalty_max: '',
+  });
+  /** หมวดคะแนนของรายวิชา สำหรับผูกงานเข้ากับรายการคะแนนอัตโนมัติ */
+  const [components, setComponents] = useState<GradeComponent[]>([]);
   const [attachment, setAttachment] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -42,6 +50,23 @@ const AssignmentManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: str
   useEffect(() => {
     if (embeddedCourseId) setSelectedCourse(embeddedCourseId);
   }, [embeddedCourseId]);
+
+  useEffect(() => {
+    if (!selectedCourse) { setComponents([]); return; }
+    let cancelled = false;
+    fetchComponents(selectedCourse).then(cs => {
+      if (cancelled) return;
+      setComponents(cs);
+      // เลือกหมวดที่เหมาะกับงานให้เป็นค่าเริ่มต้น เพื่อไม่ให้อาจารย์ลืมผูก
+      // แล้วคะแนนไม่เข้าตารางคะแนน (หมวด weighted_items สร้างรายการอัตโนมัติ
+      // ไม่ได้ เพราะระบบกำหนดน้ำหนักย่อยให้เองไม่ได้)
+      const preferred = cs.find(c => c.calc_mode === 'proportional'
+        && ['assignment', 'lab', 'quiz'].includes(c.kind))
+        ?? cs.find(c => c.calc_mode === 'proportional');
+      setForm(f => (f.component_id ? f : { ...f, component_id: preferred?.id ?? '' }));
+    });
+    return () => { cancelled = true; };
+  }, [selectedCourse]);
 
   const load = useCallback(async () => {
     if (!selectedCourse) return;
@@ -84,6 +109,8 @@ const AssignmentManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: str
         if (!attachment_path) throw new Error('อัปโหลดไฟล์แนบไม่สำเร็จ');
         attachment_name = attachment.name;
       }
+      const perDay = form.late_penalty_per_day.trim();
+      const maxPen = form.late_penalty_max.trim();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error } = await (supabase as any).from('assignments').insert({
         course_id: selectedCourse,
@@ -94,10 +121,20 @@ const AssignmentManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: str
         created_by: user.id,
         attachment_path,
         attachment_name,
+        // ผูกกับหมวดคะแนน -> trigger สร้างรายการคะแนนให้อัตโนมัติ
+        component_id: form.counts_toward_grade && form.component_id ? form.component_id : null,
+        counts_toward_grade: form.counts_toward_grade,
+        // ว่างไว้ = ใช้กฎหักคะแนนของหมวด
+        late_penalty_per_day: perDay === '' ? null : Number(perDay),
+        late_penalty_max: maxPen === '' ? null : Number(maxPen),
       });
       if (error) throw error;
       toast.success('สร้างงานเรียบร้อย');
-      setForm({ title: '', description: '', due_at: '', max_score: '100' });
+      setForm(f => ({
+        title: '', description: '', due_at: '', max_score: '100',
+        component_id: f.component_id, counts_toward_grade: true,
+        late_penalty_per_day: '', late_penalty_max: '',
+      }));
       setAttachment(null);
       setShowForm(false);
       load();
@@ -166,6 +203,69 @@ const AssignmentManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: str
                   className="w-full px-3 py-2 rounded-xl bg-muted text-xs text-foreground outline-none" />
               </div>
             </div>
+            {/* ── ผูกกับคะแนน: โพสต์งานแล้วรายการคะแนนถูกสร้างให้อัตโนมัติ ── */}
+            <div className="rounded-xl border border-border p-2.5 space-y-2">
+              <label className="flex items-center gap-2 text-[11px] font-medium text-foreground">
+                <input type="checkbox" checked={form.counts_toward_grade}
+                  onChange={e => setForm({ ...form, counts_toward_grade: e.target.checked })} />
+                นับเป็นคะแนนของรายวิชา
+              </label>
+
+              {form.counts_toward_grade && (
+                <>
+                  <div>
+                    <label className="text-[10px] text-muted-foreground">หมวดคะแนนที่งานนี้เข้า</label>
+                    <select value={form.component_id}
+                      onChange={e => setForm({ ...form, component_id: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl bg-muted text-xs text-foreground outline-none">
+                      <option value="">— ไม่ผูกกับหมวด (ต้องกรอกคะแนนเองในหน้าคะแนน) —</option>
+                      {components.map(c => (
+                        <option key={c.id} value={c.id}
+                          disabled={c.calc_mode === 'weighted_items'}>
+                          {c.name} ({c.weight_percent}% · {calcModeLabels[c.calc_mode]})
+                          {c.calc_mode === 'weighted_items' ? ' — ต้องสร้างรายการเอง' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {components.length === 0 && (
+                      <p className="text-[10px] text-warning mt-1">
+                        รายวิชานี้ยังไม่มีหมวดคะแนน — ตั้งได้ที่แท็บคะแนน ถ้าไม่ผูกหมวด
+                        คะแนนที่ตรวจจะไม่เข้าตารางคะแนนอัตโนมัติ
+                      </p>
+                    )}
+                    {form.component_id && (
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        ตรวจงานแล้วคะแนนจะเข้าตารางคะแนนทันที ไม่ต้องกรอกซ้ำ
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-muted-foreground">หักช้า %/วัน</label>
+                      <input type="number" min={0} max={100} step="any"
+                        value={form.late_penalty_per_day}
+                        onChange={e => setForm({ ...form, late_penalty_per_day: e.target.value })}
+                        placeholder="ตามหมวด"
+                        className="w-full px-3 py-2 rounded-xl bg-muted text-xs text-foreground outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-muted-foreground">หักได้สูงสุด %</label>
+                      <input type="number" min={0} max={100} step="any"
+                        value={form.late_penalty_max}
+                        onChange={e => setForm({ ...form, late_penalty_max: e.target.value })}
+                        placeholder="ตามหมวด"
+                        className="w-full px-3 py-2 rounded-xl bg-muted text-xs text-foreground outline-none" />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    เว้นว่างไว้ = ใช้กฎของหมวดคะแนน · นับวันช้าจากกำหนดส่งเทียบกับเวลาที่ส่งจริง
+                    ด้วยเวลาของเซิร์ฟเวอร์ ส่งช้าเกินกำหนดแม้นาทีเดียวนับเป็น 1 วัน
+                  </p>
+                </>
+              )}
+            </div>
+
             <div>
               <label className="text-[10px] text-muted-foreground">ไฟล์แนบ (ไม่บังคับ)</label>
               <input ref={fileInputRef} type="file" className="hidden"

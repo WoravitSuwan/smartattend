@@ -3,13 +3,13 @@ import { useAuth } from '@/lib/auth-context';
 import { fetchInstructorCourses } from '@/lib/attendance-data';
 import {
   fetchAssignments, fetchAssignmentSubmissions, fmtDateTime, getSubmissionFileUrl,
-  type AssignmentRow, type SubmissionRow,
+  waiveLatePenalty, type AssignmentRow, type SubmissionRow,
 } from '@/lib/assignment-data';
 import { supabase } from '@/integrations/supabase/client';
 import { logAudit } from '@/lib/audit-log';
 import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { CheckCircle, Clock, Paperclip, Loader2, Save } from 'lucide-react';
+import { CheckCircle, Clock, Paperclip, Loader2, Save, ShieldCheck, ShieldOff } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Course { id: string; code: string; name: string }
@@ -24,6 +24,7 @@ const InstructorGradingPage = () => {
   const [draft, setDraft] = useState<Record<string, { score: string; feedback: string }>>({});
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [waivingId, setWaivingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -81,6 +82,28 @@ const InstructorGradingPage = () => {
     load();
   };
 
+  /** ยกเว้น/ยกเลิกยกเว้นการหักคะแนนส่งช้าเป็นรายคน ต้องระบุเหตุผลเมื่อยกเว้น */
+  const toggleWaiver = async (s: SubmissionRow) => {
+    if (!s.late_penalty_waived) {
+      const reason = window.prompt(
+        `ยกเว้นการหักคะแนนส่งช้าของ ${s.studentName ?? 'นักศึกษา'} (ส่งช้า ${s.late_days ?? 0} วัน)\n\nระบุเหตุผล (บันทึกลงประวัติ):`);
+      if (reason == null) return;
+      if (!reason.trim()) { toast.error('ต้องระบุเหตุผลในการยกเว้น'); return; }
+      setWaivingId(s.id);
+      const { error } = await waiveLatePenalty(s.id, true, reason.trim());
+      setWaivingId(null);
+      if (error) { toast.error(error.message || 'ยกเว้นไม่สำเร็จ'); return; }
+      toast.success('ยกเว้นการหักคะแนนแล้ว คะแนนในตารางคะแนนถูกปรับตามทันที');
+    } else {
+      setWaivingId(s.id);
+      const { error } = await waiveLatePenalty(s.id, false);
+      setWaivingId(null);
+      if (error) { toast.error(error.message || 'ยกเลิกไม่สำเร็จ'); return; }
+      toast.success('ยกเลิกการยกเว้นแล้ว การหักคะแนนกลับมาตามกฎ');
+    }
+    load();
+  };
+
   const openFile = async (path: string) => {
     const url = await getSubmissionFileUrl(path);
     if (url) window.open(url, '_blank'); else toast.error('เปิดไฟล์ไม่สำเร็จ');
@@ -134,6 +157,52 @@ const InstructorGradingPage = () => {
               <button onClick={() => openFile(s.file_path!)} className="text-[11px] text-primary font-medium inline-flex items-center gap-1">
                 <Paperclip className="w-3 h-3" /> เปิดไฟล์ที่ส่ง
               </button>
+            )}
+
+            {/* สามค่าที่ต้องเห็นเสมอ: คะแนนดิบ · ที่ถูกหัก · คะแนนสุทธิ */}
+            {s.score != null && (
+              <div className="rounded-xl bg-muted/60 px-2.5 py-2 space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-muted-foreground">คะแนนดิบที่ตรวจให้</span>
+                  <span className="font-semibold text-foreground">
+                    {s.score}/{current?.max_score ?? '?'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-muted-foreground">
+                    หักส่งช้า
+                    {(s.late_days ?? 0) > 0 && ` (${s.late_days} วัน)`}
+                    {s.late_penalty_waived && ' — ยกเว้นแล้ว'}
+                  </span>
+                  <span className={`font-semibold ${
+                    (s.penalty_points ?? 0) > 0 ? 'text-destructive' : 'text-muted-foreground'
+                  }`}>
+                    {(s.penalty_points ?? 0) > 0 ? `-${s.penalty_points}` : '0'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[11px] pt-1 border-t border-border">
+                  <span className="font-medium text-foreground">คะแนนสุทธิ (เข้าตารางคะแนน)</span>
+                  <span className="font-bold text-primary">{s.net_score ?? s.score}</span>
+                </div>
+                {s.late_waiver_reason && (
+                  <p className="text-[10px] text-muted-foreground">
+                    เหตุผลการยกเว้น: {s.late_waiver_reason}
+                  </p>
+                )}
+                {(s.late_days ?? 0) > 0 && (
+                  <button onClick={() => toggleWaiver(s)} disabled={waivingId === s.id}
+                    className={`w-full mt-1 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-50 ${
+                      s.late_penalty_waived
+                        ? 'bg-muted text-foreground'
+                        : 'bg-warning/15 text-warning'
+                    }`}>
+                    {waivingId === s.id
+                      ? <Loader2 className="w-3 h-3 animate-spin" />
+                      : s.late_penalty_waived ? <ShieldOff className="w-3 h-3" /> : <ShieldCheck className="w-3 h-3" />}
+                    {s.late_penalty_waived ? 'ยกเลิกการยกเว้น (หักคะแนนตามกฎ)' : 'ยกเว้นการหักคะแนนให้คนนี้'}
+                  </button>
+                )}
+              </div>
             )}
 
             <div className="flex gap-2">

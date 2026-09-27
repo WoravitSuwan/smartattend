@@ -1110,6 +1110,20 @@ export type Database = {
         Returns: number
       }
       course_total_weight: { Args: { _course_id: string }; Returns: number }
+      waive_late_penalty: {
+        Args: { _submission_id: string; _waived: boolean; _reason?: string }
+        Returns: Json
+      }
+      compute_late_penalty: {
+        Args: {
+          _max_score: number
+          _due_at: string
+          _submitted_at: string
+          _per_day: number
+          _max_penalty: number
+        }
+        Returns: Json
+      }
       component_score: {
         Args: { _component_id: string; _student_id: string }
         Returns: Json
