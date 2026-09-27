@@ -50,6 +50,13 @@ def _post(table: str, payload: Any) -> list[dict]:
     return r.json() if r.text else []
 
 
+def _rpc(fn: str, payload: dict[str, Any] | None = None) -> Any:
+    r = httpx.post(f"{SUPABASE_URL}/rest/v1/rpc/{fn}",
+                   headers=_HEADERS, json=payload or {}, timeout=25)
+    r.raise_for_status()
+    return r.json() if r.text else None
+
+
 def _upsert(table: str, payload: Any) -> list[dict]:
     """POST ที่อัปเดตแถวเดิมแทนที่จะเพิ่มแถวใหม่ทุกครั้ง (ใช้ primary key ของตาราง)"""
     h = dict(_HEADERS)
@@ -62,7 +69,17 @@ def _upsert(table: str, payload: Any) -> list[dict]:
 
 # ------------------------------------------------------------------ sessions
 def get_open_session() -> dict | None:
-    """หาคาบเรียนที่เปิดอยู่ ถ้าตั้งค่า ROOM ไว้จะกรองเฉพาะห้องนั้น"""
+    """หาคาบเรียนที่เปิดอยู่ ถ้าตั้งค่า ROOM ไว้จะกรองเฉพาะห้องนั้น
+
+    เรียก sync_scheduled_sessions ก่อนทุกครั้ง เพื่อเปิดคาบที่อาจารย์ตั้งเวลาไว้
+    เมื่อถึงกำหนด และปิดคาบที่หมดเวลาแล้ว — Pi เป็นฝ่ายถามเซิร์ฟเวอร์เอง
+    จึงต้องเป็นตัวกระตุ้นให้สถานะตรงกับเวลาจริง
+    """
+    try:
+        _rpc("sync_scheduled_sessions")
+    except Exception as e:  # noqa: BLE001 — sync ล้มต้องไม่ทำให้หาคาบเรียนไม่ได้
+        log.debug("sync_scheduled_sessions ไม่สำเร็จ (ข้ามได้): %s", e)
+
     params = {
         "select": "id,course_id,started_at,late_after_minutes,status,scanning_paused,"
                   "courses(code,name,room)",
@@ -87,13 +104,15 @@ def get_enrolled_students(course_id: str) -> list[dict]:
     ไม่รวมนักศึกษาที่ถูกระงับสิทธิ์จากการขาดเรียนครบ 4 ครั้ง (attendance_blocked)
     — คนกลุ่มนี้จะไม่ถูกใส่ในคลังใบหน้าเลย จึงสแกนเช็คชื่อไม่ได้อีกต่อไป
     """
-    rows = _get("course_enrollments", {
-        "select": "student_id,student_code_raw,student_name_raw",
-        "course_id": f"eq.{course_id}",
-        "status": "eq.confirmed",
-        "attendance_blocked": "eq.false",
-    })
-    return [r for r in rows if r.get("student_id")]
+    rows = _rpc("get_scan_roster", {"_course_id": course_id}) or []
+    return [
+        {
+            "student_id": r["student_id"],
+            "student_code_raw": r.get("student_code") or "",
+            "student_name_raw": r.get("student_name") or "",
+        }
+        for r in rows if r.get("student_id")
+    ]
 
 
 # --------------------------------------------------------------- face images

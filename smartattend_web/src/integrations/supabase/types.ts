@@ -71,11 +71,14 @@ export type Database = {
         Row: {
           attachment_name: string | null
           attachment_path: string | null
+          component_id: string | null
+          counts_toward_grade: boolean
           course_id: string
           created_at: string
           created_by: string | null
           description: string | null
           due_at: string | null
+          grade_item_id: string | null
           id: string
           max_score: number
           title: string
@@ -84,11 +87,14 @@ export type Database = {
         Insert: {
           attachment_name?: string | null
           attachment_path?: string | null
+          component_id?: string | null
+          counts_toward_grade?: boolean
           course_id: string
           created_at?: string
           created_by?: string | null
           description?: string | null
           due_at?: string | null
+          grade_item_id?: string | null
           id?: string
           max_score?: number
           title: string
@@ -97,11 +103,14 @@ export type Database = {
         Update: {
           attachment_name?: string | null
           attachment_path?: string | null
+          component_id?: string | null
+          counts_toward_grade?: boolean
           course_id?: string
           created_at?: string
           created_by?: string | null
           description?: string | null
           due_at?: string | null
+          grade_item_id?: string | null
           id?: string
           max_score?: number
           title?: string
@@ -219,10 +228,14 @@ export type Database = {
           id: string
           instructor_id: string
           late_after_minutes: number
+          mode: string
           planned_end_time: string | null
           scanning_paused: boolean
+          scheduled_end: string | null
+          scheduled_start: string | null
           started_at: string
           status: string
+          title: string | null
         }
         Insert: {
           closed_at?: string | null
@@ -230,10 +243,14 @@ export type Database = {
           id?: string
           instructor_id: string
           late_after_minutes?: number
+          mode?: string
           planned_end_time?: string | null
           scanning_paused?: boolean
+          scheduled_end?: string | null
+          scheduled_start?: string | null
           started_at?: string
           status?: string
+          title?: string | null
         }
         Update: {
           closed_at?: string | null
@@ -241,10 +258,14 @@ export type Database = {
           id?: string
           instructor_id?: string
           late_after_minutes?: number
+          mode?: string
           planned_end_time?: string | null
           scanning_paused?: boolean
+          scheduled_end?: string | null
+          scheduled_start?: string | null
           started_at?: string
           status?: string
+          title?: string | null
         }
         Relationships: [
           {
@@ -314,6 +335,7 @@ export type Database = {
           id: string
           instructor_id: string
           name: string
+          room: string | null
           section: string
           semester: string | null
           updated_at: string
@@ -325,6 +347,7 @@ export type Database = {
           id?: string
           instructor_id: string
           name: string
+          room?: string | null
           section?: string
           semester?: string | null
           updated_at?: string
@@ -336,9 +359,103 @@ export type Database = {
           id?: string
           instructor_id?: string
           name?: string
+          room?: string | null
           section?: string
           semester?: string | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      course_schedules: {
+        Row: {
+          course_id: string
+          created_at: string
+          end_time: string
+          id: string
+          room: string | null
+          start_time: string
+          weekday: number
+        }
+        Insert: {
+          course_id: string
+          created_at?: string
+          end_time: string
+          id?: string
+          room?: string | null
+          start_time: string
+          weekday: number
+        }
+        Update: {
+          course_id?: string
+          created_at?: string
+          end_time?: string
+          id?: string
+          room?: string | null
+          start_time?: string
+          weekday?: number
+        }
+        Relationships: []
+      }
+      grade_components: {
+        Row: {
+          course_id: string
+          created_at: string
+          excused_credit: number
+          id: string
+          is_final_exam: boolean
+          kind: string
+          late_credit: number
+          name: string
+          position: number
+          score_mode: string
+          weight_percent: number
+        }
+        Insert: {
+          course_id: string
+          created_at?: string
+          excused_credit?: number
+          id?: string
+          is_final_exam?: boolean
+          kind?: string
+          late_credit?: number
+          name: string
+          position?: number
+          score_mode?: string
+          weight_percent?: number
+        }
+        Update: {
+          course_id?: string
+          created_at?: string
+          excused_credit?: number
+          id?: string
+          is_final_exam?: boolean
+          kind?: string
+          late_credit?: number
+          name?: string
+          position?: number
+          score_mode?: string
+          weight_percent?: number
+        }
+        Relationships: []
+      }
+      grade_scales: {
+        Row: {
+          course_id: string | null
+          grade: string
+          id: string
+          min_score: number
+        }
+        Insert: {
+          course_id?: string | null
+          grade: string
+          id?: string
+          min_score: number
+        }
+        Update: {
+          course_id?: string | null
+          grade?: string
+          id?: string
+          min_score?: number
         }
         Relationships: []
       }
@@ -465,29 +582,38 @@ export type Database = {
       grade_items: {
         Row: {
           category: string
+          component_id: string | null
           course_id: string
           created_at: string
           id: string
           max_score: number
           name: string
+          position: number
+          source: string
           weight: number
         }
         Insert: {
           category: string
+          component_id?: string | null
           course_id: string
           created_at?: string
           id?: string
           max_score?: number
           name: string
+          position?: number
+          source?: string
           weight?: number
         }
         Update: {
           category?: string
+          component_id?: string | null
           course_id?: string
           created_at?: string
           id?: string
           max_score?: number
           name?: string
+          position?: number
+          source?: string
           weight?: number
         }
         Relationships: [
@@ -961,6 +1087,32 @@ export type Database = {
         Returns: undefined
       }
       publish_final_grades: { Args: { _course_id: string }; Returns: undefined }
+      save_grade_structure: {
+        Args: { _course_id: string; _components: Json }
+        Returns: undefined
+      }
+      recalc_attendance_scores: { Args: { _course_id: string }; Returns: undefined }
+      get_student_score_summary: {
+        Args: { _course_id: string; _student_id?: string }
+        Returns: Json
+      }
+      schedule_class_session: {
+        Args: {
+          _course_id: string
+          _start: string
+          _end: string
+          _late_after_minutes?: number
+          _title?: string
+          _mode?: string
+        }
+        Returns: string
+      }
+      sync_scheduled_sessions: { Args: Record<string, never>; Returns: undefined }
+      get_scan_roster: {
+        Args: { _course_id: string }
+        Returns: { student_id: string; student_code: string; student_name: string }[]
+      }
+      grade_letter: { Args: { _course_id: string; _total: number }; Returns: string }
       check_in_attendance: {
         Args: {
           _confidence: number

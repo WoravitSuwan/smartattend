@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import MobileLayout from '@/components/MobileLayout';
 import PiStatusPanel from '@/components/PiStatusPanel';
+import ScheduleSessionPanel from '@/components/ScheduleSessionPanel';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { Loader2, PlayCircle, StopCircle, PauseCircle, Users, Clock, AlarmClock, Ban } from 'lucide-react';
@@ -405,6 +406,13 @@ export default function StartClassTestPage() {
             </>
           )}
         </div>
+
+        {selectedCourse && (
+          <ScheduleSessionPanel
+            courseId={selectedCourse}
+            courseCode={courses.find(c => c.id === selectedCourse)?.code}
+          />
+        )}
 
         <PiStatusPanel />
 
