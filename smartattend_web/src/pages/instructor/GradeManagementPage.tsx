@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, Sparkles, Loader2, Save, Megaphone, Download, Upload, X } from 'lucide-react';
 import GradeScalePanel from '@/components/GradeScalePanel';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import GradeStructurePanel from '@/components/GradeStructurePanel';
 
 interface Course { id: string; code: string; name: string }
 interface Student { id: string; name: string; code: string }
@@ -487,6 +488,8 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
                 </div>
               )}
             </div>
+
+            <GradeStructurePanel courseId={courseId} />
 
             <GradeScalePanel courseId={courseId} />
 

@@ -1,0 +1,383 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import {
+  Copy, FileStack, GripVertical, Loader2, Plus, Save, Trash2,
+} from 'lucide-react';
+import ConfirmDialog from '@/components/ConfirmDialog';
+import {
+  applyTemplate, calcModeHelp, calcModeLabels, componentKinds, copyGradeStructure,
+  deleteTemplate, fetchComponents, fetchStructureItems, fetchTemplates, saveGradeStructure,
+  saveTemplate, scoreModeLabels, type ComponentDraft, type StructureTemplate,
+} from '@/lib/grade-structure-data';
+import {
+  itemWeightsComplete, weightsComplete, type CalcMode, type GradeComponent,
+  type ScoreMode, type StructureItem,
+} from '@/lib/grade-structure';
+import { fetchInstructorCourses } from '@/lib/attendance-data';
+import { useAuth } from '@/lib/auth-context';
+
+interface Row extends ComponentDraft { key: string }
+
+const KINDS = Object.entries(componentKinds) as [string, string][];
+
+const toRows = (cs: GradeComponent[]): Row[] => cs.map(c => ({
+  key: c.id, id: c.id, name: c.name, kind: c.kind,
+  weight_percent: c.weight_percent, calc_mode: c.calc_mode, drop_lowest: c.drop_lowest,
+  is_final_exam: c.is_final_exam, score_mode: c.score_mode,
+  credit_on_time: c.credit_on_time, credit_late: c.credit_late,
+  credit_excused: c.credit_excused, credit_absent: c.credit_absent,
+}));
+
+/**
+ * ตั้งโครงสร้างคะแนนของรายวิชา — หมวดคะแนนถือน้ำหนัก รายการย่อยถือคะแนนเต็ม
+ *
+ * น้ำหนักรวมไม่ครบ 100 บันทึกได้ (กรอกคะแนนระหว่างเทอมต้องทำได้) แต่จะมีป้าย
+ * เตือนค้างไว้ และประกาศผลไม่ได้จนกว่าจะครบ ซึ่งบังคับที่ฐานข้อมูล
+ */
+const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
+  const { user } = useAuth();
+  const [rows, setRows] = useState<Row[]>([]);
+  const [items, setItems] = useState<StructureItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [reason, setReason] = useState('');
+  const [removedIds, setRemovedIds] = useState<string[]>([]);
+
+  const [templates, setTemplates] = useState<StructureTemplate[]>([]);
+  const [otherCourses, setOtherCourses] = useState<{ id: string; code: string; name: string }[]>([]);
+  const [copyAsk, setCopyAsk] = useState(false);
+  const [templateAsk, setTemplateAsk] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const [cs, its, tpl] = await Promise.all([
+      fetchComponents(courseId), fetchStructureItems(courseId), fetchTemplates(),
+    ]);
+    setRows(toRows(cs));
+    setItems(its);
+    setTemplates(tpl);
+    setRemovedIds([]);
+    setLoading(false);
+  }, [courseId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const totalWeight = useMemo(
+    () => Math.round(rows.reduce((a, r) => a + (Number(r.weight_percent) || 0), 0) * 100) / 100,
+    [rows]);
+  const complete = weightsComplete(rows.map(r => ({ weight_percent: r.weight_percent })));
+
+  const itemsOf = useCallback(
+    (componentId?: string | null) =>
+      componentId ? items.filter(i => i.component_id === componentId) : [],
+    [items]);
+
+  const setRow = (key: string, patch: Partial<ComponentDraft>) =>
+    setRows(prev => prev.map(r => (r.key === key ? { ...r, ...patch } : r)));
+
+  const addRow = () => setRows(prev => [...prev, {
+    key: `new-${Date.now()}`, name: '', kind: 'other', weight_percent: 0,
+    calc_mode: 'proportional', drop_lowest: 0, is_final_exam: false, score_mode: 'manual',
+  }]);
+
+  const removeRow = (key: string) => {
+    const row = rows.find(r => r.key === key);
+    if (row?.id) setRemovedIds(prev => [...prev, row.id!]);
+    setRows(prev => prev.filter(r => r.key !== key));
+  };
+
+  const problems = useMemo(() => {
+    const out: string[] = [];
+    if (rows.some(r => !r.name.trim())) out.push('มีหมวดที่ยังไม่ใส่ชื่อ');
+    const names = rows.map(r => r.name.trim()).filter(Boolean);
+    if (new Set(names).size !== names.length) out.push('มีชื่อหมวดซ้ำกัน');
+    if (rows.some(r => r.weight_percent < 0 || r.weight_percent > 100)) {
+      out.push('น้ำหนักหมวดต้องอยู่ระหว่าง 0 - 100');
+    }
+    for (const r of rows) {
+      if (r.calc_mode !== 'weighted_items' || !r.id) continue;
+      const its = itemsOf(r.id);
+      if (its.length > 0 && !itemWeightsComplete(its)) {
+        out.push(`หมวด "${r.name}" คิดแบบถ่วงน้ำหนักรายการย่อย ต้องให้น้ำหนักย่อยรวมเป็น 100`);
+      }
+    }
+    if (rows.filter(r => r.is_final_exam).length > 1) {
+      out.push('ตั้งหมวดสอบปลายภาค (ปิดบังคะแนน) ได้มากกว่าหนึ่งหมวด แต่ปกติควรมีหมวดเดียว');
+    }
+    return out;
+  }, [rows, itemsOf]);
+
+  const save = async (deleteMissing: boolean) => {
+    setSaving(true);
+    const { error } = await saveGradeStructure(
+      courseId,
+      rows.map(({ key, ...r }) => ({ ...r, name: r.name.trim() })),
+      { deleteMissing, reason: reason.trim() || undefined },
+    );
+    setSaving(false);
+    if (error) {
+      console.error(error);
+      toast.error(error.message || 'บันทึกโครงสร้างคะแนนไม่สำเร็จ');
+      return;
+    }
+    toast.success('บันทึกโครงสร้างคะแนนแล้ว');
+    setReason('');
+    load();
+  };
+
+  const doCopy = async (fromCourseId: string) => {
+    setBusy(true);
+    const { error } = await copyGradeStructure(fromCourseId, courseId, true);
+    setBusy(false);
+    setCopyAsk(false);
+    if (error) { toast.error(error.message || 'คัดลอกไม่สำเร็จ'); return; }
+    toast.success('คัดลอกโครงสร้างคะแนนแล้ว (ไม่ได้คัดลอกคะแนนของนักศึกษา)');
+    load();
+  };
+
+  const doSaveTemplate = async () => {
+    if (!templateName.trim()) { toast.error('กรุณาตั้งชื่อแม่แบบ'); return; }
+    setBusy(true);
+    const { error } = await saveTemplate(courseId, templateName.trim());
+    setBusy(false);
+    if (error) { toast.error(error.message || 'บันทึกแม่แบบไม่สำเร็จ'); return; }
+    toast.success('บันทึกแม่แบบแล้ว');
+    setTemplateName('');
+    setTemplateAsk(false);
+    load();
+  };
+
+  const doApplyTemplate = async (id: string) => {
+    setBusy(true);
+    const { error } = await applyTemplate(id, courseId);
+    setBusy(false);
+    if (error) { toast.error(error.message || 'ใช้แม่แบบไม่สำเร็จ'); return; }
+    toast.success('ใช้แม่แบบแล้ว');
+    load();
+  };
+
+  useEffect(() => {
+    // รายวิชาอื่นของอาจารย์คนเดียวกัน สำหรับปุ่มคัดลอก
+    if (!user?.id) return;
+    let cancelled = false;
+    fetchInstructorCourses(user.id)
+      .then(cs => {
+        if (cancelled) return;
+        setOtherCourses((cs as { id: string; code: string; name: string }[])
+          .filter(c => c.id !== courseId));
+      })
+      .catch(() => { /* ไม่มีรายวิชาอื่นก็ไม่เป็นไร ปุ่มคัดลอกจะถูกปิดไว้ */ });
+    return () => { cancelled = true; };
+  }, [courseId, user?.id]);
+
+  return (
+    <div className="bg-card rounded-2xl p-4 shadow-card space-y-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-xs font-semibold text-foreground">
+            โครงสร้างคะแนน · น้ำหนักรวม {totalWeight}%
+          </p>
+          <p className={`text-[10px] mt-0.5 leading-relaxed ${complete ? 'text-success' : 'text-warning'}`}>
+            {complete
+              ? 'น้ำหนักรวมครบ 100% พร้อมประกาศผลได้'
+              : `ยังไม่ครบ 100% (${totalWeight < 100
+                  ? `ขาดอีก ${Math.round((100 - totalWeight) * 100) / 100}%`
+                  : `เกินมา ${Math.round((totalWeight - 100) * 100) / 100}%`}) — กรอกคะแนนได้ปกติ แต่ยังประกาศผลไม่ได้`}
+          </p>
+        </div>
+        <button onClick={addRow} className="inline-flex items-center gap-1 text-[11px] text-primary font-medium shrink-0">
+          <Plus className="w-3.5 h-3.5" /> เพิ่มหมวด
+        </button>
+      </div>
+
+      {loading ? (
+        <p className="text-[11px] text-muted-foreground py-2">กำลังโหลด...</p>
+      ) : (
+        <>
+          {rows.length === 0 && (
+            <p className="text-[11px] text-muted-foreground py-2">
+              ยังไม่มีหมวดคะแนน — กด "เพิ่มหมวด" หรือคัดลอกจากรายวิชาอื่น/แม่แบบด้านล่าง
+            </p>
+          )}
+
+          <div className="space-y-2">
+            {rows.map(r => {
+              const its = itemsOf(r.id);
+              const itemWeightBad = r.calc_mode === 'weighted_items'
+                && its.length > 0 && !itemWeightsComplete(its);
+              return (
+                <div key={r.key} className="rounded-xl border border-border p-2.5 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <GripVertical className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <input value={r.name} onChange={e => setRow(r.key, { name: e.target.value })}
+                      placeholder="ชื่อหมวด เช่น LABs"
+                      className="flex-1 min-w-0 px-2 py-1.5 rounded-lg bg-muted text-xs text-foreground outline-none" />
+                    <div className="flex items-center gap-1 shrink-0">
+                      <input value={r.weight_percent} type="number" min={0} max={100} step="any"
+                        onChange={e => setRow(r.key, { weight_percent: Number(e.target.value) })}
+                        className="w-16 px-2 py-1.5 rounded-lg bg-muted text-xs text-foreground text-center outline-none" />
+                      <span className="text-[10px] text-muted-foreground">%</span>
+                    </div>
+                    <button onClick={() => removeRow(r.key)} className="p-1 rounded-lg hover:bg-muted shrink-0">
+                      <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <select value={r.kind} onChange={e => setRow(r.key, { kind: e.target.value })}
+                      className="px-2 py-1.5 rounded-lg bg-muted text-[11px] text-foreground outline-none">
+                      {KINDS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+                    </select>
+                    <select value={r.score_mode}
+                      onChange={e => setRow(r.key, { score_mode: e.target.value as ScoreMode })}
+                      className="px-2 py-1.5 rounded-lg bg-muted text-[11px] text-foreground outline-none">
+                      {Object.entries(scoreModeLabels).map(([k, label]) =>
+                        <option key={k} value={k}>{label}</option>)}
+                    </select>
+                  </div>
+
+                  <select value={r.calc_mode}
+                    onChange={e => setRow(r.key, { calc_mode: e.target.value as CalcMode })}
+                    className="w-full px-2 py-1.5 rounded-lg bg-muted text-[11px] text-foreground outline-none">
+                    {Object.entries(calcModeLabels).map(([k, label]) =>
+                      <option key={k} value={k}>วิธีคิดคะแนน: {label}</option>)}
+                  </select>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    {calcModeHelp[r.calc_mode]}
+                  </p>
+
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <label className="flex items-center gap-1.5 text-[10px] text-foreground">
+                      ตัดคะแนนต่ำสุดออก
+                      <input value={r.drop_lowest} type="number" min={0} max={20}
+                        onChange={e => setRow(r.key, { drop_lowest: Number(e.target.value) })}
+                        className="w-14 px-2 py-1 rounded-lg bg-muted text-center outline-none" />
+                      รายการ
+                    </label>
+                    <label className="flex items-center gap-1.5 text-[10px] text-foreground">
+                      <input type="checkbox" checked={r.is_final_exam}
+                        onChange={e => setRow(r.key, { is_final_exam: e.target.checked })} />
+                      ปิดบังคะแนนจนประกาศผล
+                    </label>
+                  </div>
+
+                  {r.id && (
+                    <p className={`text-[10px] ${itemWeightBad ? 'text-destructive' : 'text-muted-foreground'}`}>
+                      {its.length} รายการ
+                      {r.calc_mode === 'weighted_items' && its.length > 0 &&
+                        ` · น้ำหนักย่อยรวม ${Math.round(its.reduce((a, i) => a + i.weight_in_component, 0) * 100) / 100}%`}
+                      {itemWeightBad && ' — ต้องรวมเป็น 100%'}
+                    </p>
+                  )}
+
+                  {r.score_mode === 'auto_attendance' && (
+                    <div className="grid grid-cols-4 gap-1.5 pt-1 border-t border-border">
+                      {([
+                        ['credit_on_time', 'ตรงเวลา'], ['credit_late', 'สาย'],
+                        ['credit_excused', 'ลา'], ['credit_absent', 'ขาด'],
+                      ] as const).map(([field, label]) => (
+                        <label key={field} className="text-[9px] text-muted-foreground">
+                          {label}
+                          <input type="number" min={0} max={1} step="0.1"
+                            value={r[field] ?? 0}
+                            onChange={e => setRow(r.key, { [field]: Number(e.target.value) })}
+                            className="w-full px-1 py-1 rounded-lg bg-muted text-[11px] text-foreground text-center outline-none" />
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {problems.length > 0 && (
+            <ul className="text-[10px] text-destructive space-y-0.5 list-disc list-inside">
+              {problems.map(p => <li key={p}>{p}</li>)}
+            </ul>
+          )}
+
+          <input value={reason} onChange={e => setReason(e.target.value)}
+            placeholder="เหตุผลในการเปลี่ยนโครงสร้าง (บันทึกลงประวัติ)"
+            className="w-full px-3 py-2 rounded-xl bg-muted text-xs text-foreground outline-none" />
+
+          <button onClick={() => save(removedIds.length > 0)} disabled={saving || problems.length > 0}
+            className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl gradient-primary text-primary-foreground text-xs font-semibold disabled:opacity-50">
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            บันทึกโครงสร้างคะแนน
+            {removedIds.length > 0 && ` (ลบ ${removedIds.length} หมวด)`}
+          </button>
+
+          <div className="flex gap-2 pt-1 border-t border-border">
+            <button onClick={() => setCopyAsk(true)} disabled={otherCourses.length === 0}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-xl bg-muted text-[11px] font-semibold text-foreground disabled:opacity-50">
+              <Copy className="w-3.5 h-3.5" /> คัดลอกจากวิชาอื่น
+            </button>
+            <button onClick={() => setTemplateAsk(true)} disabled={rows.length === 0}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-xl bg-muted text-[11px] font-semibold text-foreground disabled:opacity-50">
+              <FileStack className="w-3.5 h-3.5" /> บันทึกเป็นแม่แบบ
+            </button>
+          </div>
+
+          {templates.length > 0 && (
+            <div className="space-y-1.5 pt-1">
+              <p className="text-[10px] text-muted-foreground">แม่แบบของคุณ</p>
+              {templates.map(t => (
+                <div key={t.id} className="flex items-center gap-2">
+                  <span className="flex-1 text-[11px] text-foreground truncate">
+                    {t.name} <span className="text-muted-foreground">({t.componentCount} หมวด)</span>
+                  </span>
+                  <button onClick={() => doApplyTemplate(t.id)} disabled={busy}
+                    className="px-2 py-1 rounded-lg bg-primary/10 text-primary text-[10px] font-semibold disabled:opacity-50">
+                    ใช้
+                  </button>
+                  <button onClick={async () => {
+                    await deleteTemplate(t.id); load();
+                  }} className="p-1 rounded-lg hover:bg-muted">
+                    <Trash2 className="w-3 h-3 text-destructive" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      <ConfirmDialog
+        open={copyAsk} busy={busy}
+        title="คัดลอกโครงสร้างคะแนนจากรายวิชาอื่น"
+        description={
+          <>
+            <p>คัดลอกเฉพาะหมวดและรายการคะแนน <b>ไม่คัดลอกคะแนนของนักศึกษา</b></p>
+            <p>รายวิชานี้ต้องยังไม่มีหมวดคะแนน ถ้ามีอยู่แล้วให้ลบก่อน</p>
+          </>
+        }
+        choices={otherCourses.slice(0, 4).map(c => ({
+          value: c.id, label: c.code, detail: c.name, tone: 'muted' as const,
+        }))}
+        onCancel={() => setCopyAsk(false)}
+        onConfirm={doCopy}
+      />
+
+      <ConfirmDialog
+        open={templateAsk} busy={busy}
+        title="บันทึกเป็นแม่แบบส่วนตัว"
+        description={
+          <>
+            <p>เก็บโครงสร้างนี้ไว้ใช้กับรายวิชาอื่นหรือเทอมถัดไป โดยไม่มีคะแนนของนักศึกษาติดไป</p>
+            <input value={templateName} onChange={e => setTemplateName(e.target.value)}
+              placeholder="ชื่อแม่แบบ เช่น วิชาปฏิบัติ 3 หน่วยกิต" autoFocus
+              className="w-full px-3 py-2 rounded-xl bg-muted text-xs text-foreground outline-none" />
+          </>
+        }
+        choices={[{ value: 'save', label: 'บันทึกแม่แบบ', tone: 'primary' }]}
+        onCancel={() => { setTemplateAsk(false); setTemplateName(''); }}
+        onConfirm={doSaveTemplate}
+      />
+    </div>
+  );
+};
+
+export default GradeStructurePanel;

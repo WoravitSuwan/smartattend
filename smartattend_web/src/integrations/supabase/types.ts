@@ -1110,6 +1110,31 @@ export type Database = {
         Returns: number
       }
       course_total_weight: { Args: { _course_id: string }; Returns: number }
+      component_score: {
+        Args: { _component_id: string; _student_id: string }
+        Returns: Json
+      }
+      save_grade_structure_v2: {
+        Args: {
+          _course_id: string
+          _components: Json
+          _delete_missing?: boolean
+          _reason?: string
+        }
+        Returns: Json
+      }
+      copy_grade_structure: {
+        Args: { _from_course_id: string; _to_course_id: string; _include_items?: boolean }
+        Returns: Json
+      }
+      save_grade_structure_template: {
+        Args: { _course_id: string; _name: string }
+        Returns: string
+      }
+      apply_grade_structure_template: {
+        Args: { _template_id: string; _course_id: string }
+        Returns: Json
+      }
       delete_grade_item: {
         Args: { _item_id: string; _reason?: string; _confirm_name?: string }
         Returns: number
