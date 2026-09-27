@@ -1110,6 +1110,32 @@ export type Database = {
         Returns: number
       }
       course_total_weight: { Args: { _course_id: string }; Returns: number }
+      attendance_score_detail: {
+        Args: { _component_id: string; _student_id: string }
+        Returns: Json
+      }
+      preview_attendance_scores: {
+        Args: {
+          _component_id: string
+          _credit_on_time?: number
+          _credit_late?: number
+          _credit_excused?: number
+          _credit_absent?: number
+          _limit?: number
+        }
+        Returns: Json
+      }
+      attendance_criteria_impact: { Args: { _component_id: string }; Returns: Json }
+      cancel_class_session: {
+        Args: {
+          _session_id: string
+          _reason: string
+          _records?: string
+          _makeup_start?: string
+          _makeup_end?: string
+        }
+        Returns: Json
+      }
       waive_late_penalty: {
         Args: { _submission_id: string; _waived: boolean; _reason?: string }
         Returns: Json
@@ -1157,7 +1183,7 @@ export type Database = {
         Args: { _course_id: string; _components: Json }
         Returns: undefined
       }
-      recalc_attendance_scores: { Args: { _course_id: string }; Returns: undefined }
+      recalc_attendance_scores: { Args: { _course_id: string }; Returns: Json }
       get_student_score_summary: {
         Args: { _course_id: string; _student_id?: string }
         Returns: Json

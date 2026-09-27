@@ -4,6 +4,7 @@ import {
   Copy, FileStack, GripVertical, Loader2, Plus, Save, Trash2,
 } from 'lucide-react';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import AttendanceCreditPreview from '@/components/AttendanceCreditPreview';
 import {
   applyTemplate, calcModeHelp, calcModeLabels, componentKinds, copyGradeStructure,
   deleteTemplate, fetchComponents, fetchStructureItems, fetchTemplates, saveGradeStructure,
@@ -287,6 +288,16 @@ const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
                         </label>
                       ))}
                     </div>
+                  )}
+
+                  {/* ปรับเกณฑ์แล้วเห็นผลกับนักศึกษาจริงทันที (ข้อ 3.4) */}
+                  {r.score_mode === 'auto_attendance' && r.id && (
+                    <AttendanceCreditPreview componentId={r.id} credits={{
+                      on_time: r.credit_on_time ?? 1,
+                      late: r.credit_late ?? 0.5,
+                      excused: r.credit_excused ?? 1,
+                      absent: r.credit_absent ?? 0,
+                    }} />
                   )}
                 </div>
               );

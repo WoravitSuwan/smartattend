@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { CalendarClock, Loader2, Plus, Trash2 } from 'lucide-react';
+import CancelSessionDialog from '@/components/CancelSessionDialog';
 
 interface ScheduledSession {
   id: string;
@@ -35,6 +36,7 @@ export default function ScheduleSessionPanel({ courseId, courseCode }: {
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<ScheduledSession[]>([]);
   const [saving, setSaving] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<{ id: string; label: string } | null>(null);
 
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
@@ -82,13 +84,11 @@ export default function ScheduleSessionPanel({ courseId, courseCode }: {
     load();
   };
 
-  const cancel = async (row: ScheduledSession) => {
-    if (!window.confirm(`ยกเลิกคาบวันที่ ${fmt(row.scheduled_start)}?`)) return;
-    const { error } = await supabase
-      .from('class_sessions').update({ status: 'cancelled' }).eq('id', row.id);
-    if (error) { toast.error('ยกเลิกไม่สำเร็จ'); return; }
-    toast.success('ยกเลิกคาบแล้ว');
-    load();
+  /** เปิดไดอะล็อกยกเลิกคาบ
+   *  ของเดิมอัปเดต status = 'cancelled' ตรง ๆ ซึ่งไม่บังคับเหตุผล ไม่แจ้งเตือน
+   *  นักศึกษา ไม่ถามว่าจะทำอย่างไรกับระเบียนที่มีคนเช็คชื่อไปแล้ว และไม่นัดชดเชย */
+  const cancel = (row: ScheduledSession) => {
+    setCancelTarget({ id: row.id, label: fmt(row.scheduled_start) });
   };
 
   return (
@@ -183,6 +183,14 @@ export default function ScheduleSessionPanel({ courseId, courseCode }: {
           )}
         </div>
       )}
+
+      <CancelSessionDialog
+        open={!!cancelTarget}
+        sessionId={cancelTarget?.id ?? null}
+        sessionLabel={cancelTarget?.label}
+        onClose={() => setCancelTarget(null)}
+        onDone={load}
+      />
     </div>
   );
 }

@@ -17,6 +17,7 @@ import { Plus, Pencil, Trash2, Sparkles, Loader2, Save, Megaphone, Download, Upl
 import GradeScalePanel from '@/components/GradeScalePanel';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import GradeStructurePanel from '@/components/GradeStructurePanel';
+import { recalcAttendanceScores, type RecalcResult } from '@/lib/attendance-score-data';
 
 interface Course { id: string; code: string; name: string }
 interface Student { id: string; name: string; code: string }
@@ -56,6 +57,9 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
   const [publishAsk, setPublishAsk] = useState(false);
   /** ข้อผิดพลาดรายช่องที่ฐานข้อมูลคืนมาจากการบันทึกครั้งล่าสุด */
   const [serverErrors, setServerErrors] = useState<Record<string, string>>({});
+  const [recalcing, setRecalcing] = useState(false);
+  /** รายงานผลการคำนวณคะแนนเข้าเรียนครั้งล่าสุด — คำนวณให้กี่คน ข้ามกี่คน ใครบ้าง */
+  const [recalcReport, setRecalcReport] = useState<RecalcResult | null>(null);
   const [newName, setNewName] = useState('');
   const [newCat, setNewCat] = useState<GradeCategory>('assignment');
   const [newMax, setNewMax] = useState('100');
@@ -370,23 +374,35 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
     }
   };
 
+  /**
+   * คำนวณคะแนนการเข้าเรียนลงตารางคะแนนผ่าน RPC
+   *
+   * ของเดิมคำนวณในเบราว์เซอร์จาก attendance_rate ของ view สรุป ซึ่งมีปัญหาสามข้อ
+   *   1. ข้ามนักศึกษาที่ไม่มีข้อมูลสรุปโดยไม่แจ้ง อาจารย์ไม่รู้ว่าใครไม่ได้คะแนน
+   *   2. ผลอยู่แค่ในหน้าจอ รีเฟรชก่อนกดบันทึกคือหายหมด
+   *   3. ใช้ attendance_rate ซึ่งไม่รู้จักคาบที่ยกเลิกและคนที่เข้ากลางเทอม
+   * ตอนนี้เขียนลงฐานข้อมูลทันทีในทรานแซกชันเดียว และรายงานผลเป็นสามกลุ่ม
+   */
   const autoAttendance = async () => {
-    const attItems = items.filter(i => i.category === 'attendance');
-    if (attItems.length === 0) { toast.error('ยังไม่มีหัวข้อคะแนนประเภท "เข้าเรียน"'); return; }
-    const next = { ...grades };
-    let n = 0;
-    for (const it of attItems) {
-      for (const s of students) {
-        const row = summary.find(r => r.student_id === s.id && r.course_id === courseId);
-        if (!row) continue;
-        const max = maxScoreOf(it);
-        if (max == null) continue;
-        next[`${it.id}:${s.id}`] = attendanceScore(row.attendance_rate, max);
-        n++;
-      }
+    setRecalcing(true);
+    const { result, error } = await recalcAttendanceScores(courseId);
+    setRecalcing(false);
+
+    if (error) {
+      console.error(error);
+      toast.error(dbMessage(error, 'คำนวณคะแนนการเข้าเรียนไม่สำเร็จ'));
+      return;
     }
-    setGrades(next);
-    toast.success(`คำนวณคะแนนเข้าเรียนอัตโนมัติ ${n} รายการ — กด "บันทึกคะแนน" เพื่อยืนยัน`);
+    if (!result) { toast.error('ไม่ได้รับผลการคำนวณ'); return; }
+
+    setRecalcReport(result);
+    const c = result.credits;
+    toast.success(
+      `คำนวณให้ ${result.updated} คน`
+      + (result.skipped > 0 ? ` · ข้าม ${result.skipped} คน` : '')
+      + ` · เกณฑ์ ตรงเวลา ${c.on_time} สาย ${c.late} ลา ${c.excused} ขาด ${c.absent}`,
+    );
+    load();
   };
 
   const totalWeight = useMemo(
@@ -494,9 +510,12 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
             <GradeScalePanel courseId={courseId} />
 
             <div className="flex gap-2">
-              <button onClick={autoAttendance}
-                className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-card shadow-card text-xs font-semibold text-foreground">
-                <Sparkles className="w-3.5 h-3.5 text-primary" /> คำนวณคะแนนเข้าเรียน
+              <button onClick={autoAttendance} disabled={recalcing}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-card shadow-card text-xs font-semibold text-foreground disabled:opacity-50">
+                {recalcing
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Sparkles className="w-3.5 h-3.5 text-primary" />}
+                คำนวณคะแนนเข้าเรียน
               </button>
               <button onClick={exportExcel} disabled={!items.length || !students.length}
                 className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-card shadow-card text-xs font-semibold text-foreground disabled:opacity-50">
@@ -509,6 +528,33 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
               <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
                 onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) importExcel(f); }} />
             </div>
+
+            {recalcReport && (
+              <div className="rounded-xl bg-muted/60 px-3 py-2.5 text-[11px] space-y-1">
+                <p className="font-semibold text-foreground">ผลการคำนวณคะแนนการเข้าเรียน</p>
+                <p className="text-foreground">คำนวณให้แล้ว {recalcReport.updated} คน</p>
+                {recalcReport.skipped > 0 && (
+                  <p className="text-warning">
+                    ข้าม {recalcReport.skipped} คน เพราะยังไม่มีคาบที่นับได้เลย
+                    (เพิ่งเข้าร่วมรายวิชา หรือคาบที่ผ่านมาถูกยกเลิกทั้งหมด)
+                    {recalcReport.skipped_names.length > 0 &&
+                      ` — ${recalcReport.skipped_names.slice(0, 5).join(', ')}`}
+                    {recalcReport.skipped_names.length > 5 &&
+                      ` และอีก ${recalcReport.skipped_names.length - 5} คน`}
+                  </p>
+                )}
+                <p className="text-muted-foreground leading-relaxed">
+                  สูตร: (ตรงเวลา×{recalcReport.credits.on_time} + สาย×{recalcReport.credits.late}
+                  {' '}+ ลา×{recalcReport.credits.excused} + ขาด×{recalcReport.credits.absent})
+                  {' '}÷ จำนวนคาบที่นับ × น้ำหนักหมวด
+                  <br />
+                  นับเฉพาะคาบที่ปิดแล้วและไม่ถูกยกเลิก และเฉพาะคาบที่อยู่ในช่วงที่นักศึกษาคนนั้น
+                  อยู่ในรายวิชา · นักศึกษาที่ถอนรายวิชาไม่ถูกคำนวณและไม่อยู่ในตารางคะแนน
+                  <br />
+                  ปรับเกณฑ์ได้ที่หมวดคะแนนที่ตั้งเป็น "คำนวณจากการเข้าเรียน" ด้านบน
+                </p>
+              </div>
+            )}
 
             <textarea value={reason} onChange={e => setReason(e.target.value)} rows={2}
               placeholder="เหตุผลในการแก้ไข (จำเป็นถ้าแก้คะแนนที่เคยบันทึกไว้แล้ว)"
