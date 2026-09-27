@@ -5,6 +5,7 @@ import {
 } from 'recharts';
 import { getRuns, type TrainingMetric } from '@/lib/training-store';
 import { fetchCloudRuns } from '@/lib/cloud-sync';
+import ExperimentalFeatureNotice from '@/components/ExperimentalFeatureNotice';
 
 interface MergedRun {
   id: string;
@@ -105,10 +106,14 @@ export default function AdminTrainingAnalyticsPage() {
 
   return (
     <div className="p-4 md:p-8 space-y-5">
+      <ExperimentalFeatureNotice />
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold font-display text-foreground flex items-center gap-2">
             <TrendingUp className="w-6 h-6 text-primary" /> กราฟผลการเทรน
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-warning/15 text-warning border border-warning/30">
+              ทดลอง
+            </span>
           </h1>
           <p className="text-sm text-muted-foreground">
             Accuracy / Loss / Val Acc ของแต่ละ training run ตามเวลา • เปรียบเทียบกับรอบก่อนหน้าได้

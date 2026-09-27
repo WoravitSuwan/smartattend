@@ -6,8 +6,26 @@
 //   2. Decode each dataURL to a 64×64 RGB tensor.
 //   3. Build a small CNN (Conv → Pool → Conv → Pool → Dense → Softmax(numClasses)).
 //   4. Train with model.fit() and stream real per-epoch metrics.
-//   5. Persist the trained model in localStorage under `indexeddb://face-model-<runId>`
-//      (fallback: `localstorage://...`) so the Pi/edge scanner can load it back.
+//   5. Persist the trained model under `indexeddb://face-model-<runId>`
+//      (fallback: `localstorage://...`) and upload a copy to the `face-models` bucket.
+//
+// ⚠️ สถานะของโมเดลนี้: เป็น "การทดลอง" ที่ยังไม่ถูกนำไปใช้เช็คชื่อจริง
+//   คอมเมนต์เดิมบรรทัดนี้เขียนว่าเก็บไว้ "so the Pi/edge scanner can load it back"
+//   ซึ่งไม่จริง — ตรวจแล้วไม่มีโค้ดใดใน smartattend_pi/ โหลดโมเดลนี้เลย
+//   การเช็คชื่อหน้าห้องเรียนใช้ dlib/face_recognition เทียบเวกเตอร์ 128 มิติ
+//   (ดู smartattend_pi/face_recognizer.py) ซึ่งเป็นวิธี embedding matching
+//   คนละแบบกับ closed-set softmax classification ของโมเดลนี้
+//
+//   ห้ามเขียนในเอกสารว่าระบบใช้ CNN จดจำใบหน้า จนกว่าจะมีโค้ดที่เรียกใช้จริง
+//
+//   ถ้าจะทำให้โมเดลนี้มีประโยชน์จริงในอนาคต **อย่า** ใช้วิธีให้โมเดลทำนายภาพ
+//   ของเจ้าของเองหลังเทรนเสร็จเพื่อวัดคุณภาพภาพ เพราะภาพนั้นอยู่ในชุดเทรนแล้ว
+//   ค่าความมั่นใจจะสูงเสมอโดยไม่ได้บอกคุณภาพอะไร (data leakage)
+//   แนวทางที่ใช้ได้จริงมีสองทาง
+//     1. ตรวจคุณภาพภาพ "ก่อน" เทรน ด้วย BlazeFace ที่มีอยู่แล้วใน face-crop.ts
+//        (เจอใบหน้าเดียว / ขนาดพอ / ไม่เบลอ / ไม่มืดหรือย้อนแสง)
+//     2. ตรวจการสลับตัวบุคคล โดยเอาภาพใหม่ไปทำนายกับโมเดล "รอบก่อน" ก่อนเทรน
+//        รอบใหม่ ถ้าถูกทำนายเป็นคนอื่นด้วยความมั่นใจสูง ให้เตือนว่าอาจส่งภาพผิดคน
 //
 // The trainer requires at least 2 distinct classes (softmax cannot train on 1 class).
 // If only one student is available, we synthesise a "background/other" class from

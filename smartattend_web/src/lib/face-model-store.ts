@@ -11,9 +11,14 @@ export interface ClassMapEntry {
 const BUCKET = 'face-models';
 
 /**
- * Upload a trained model to shared storage so ANY device (student phones, Pi,
- * other browsers) can use it. Without this, the model only lives in the
+ * Upload a trained model to shared storage so it is not stranded in the
  * IndexedDB of the machine that trained it.
+ *
+ * ⚠️ คอมเมนต์เดิมเขียนว่า "so ANY device (student phones, Pi, other browsers)
+ * can use it" ซึ่งไม่จริงในปัจจุบัน — ตรวจแล้วมีแต่ AdminTrainingPage ที่
+ * เกี่ยวข้องกับโมเดลนี้ ไม่มีทั้งฝั่ง Pi และหน้าของนักศึกษาที่โหลดมาใช้
+ * การเช็คชื่อจริงใช้ dlib เทียบเวกเตอร์ 128 มิติบน Pi (ดู real-trainer.ts
+ * สำหรับคำอธิบายเต็มและแนวทางถ้าจะทำให้โมเดลนี้มีที่ใช้จริง)
  */
 export async function uploadSharedModel(
   model: tf.LayersModel,

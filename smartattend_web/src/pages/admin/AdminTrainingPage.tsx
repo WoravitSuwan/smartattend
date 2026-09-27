@@ -18,6 +18,7 @@ import { trainFaceModel } from '@/lib/real-trainer';
 import { useNotifications } from '@/lib/notification-context';
 import { useAuth } from '@/lib/auth-context';
 import { logAudit } from '@/lib/audit-log';
+import ExperimentalFeatureNotice from '@/components/ExperimentalFeatureNotice';
 
 function makeLayers(outputCount: number) {
   return [
@@ -341,14 +342,18 @@ export default function AdminTrainingPage() {
 
   return (
     <div className="p-4 md:p-8 space-y-5">
+      <ExperimentalFeatureNotice />
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold font-display text-foreground flex items-center gap-2">
             <Brain className="w-6 h-6 text-primary" /> เทรนโมเดล Neural Network
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-warning/15 text-warning border border-warning/30">
+              ทดลอง
+            </span>
           </h1>
           <p className="text-sm text-muted-foreground">
-            Face Recognition CNN • Active: <span className="font-semibold text-primary">{activeRun?.name ?? '—'}</span>
+            Face Recognition CNN (TensorFlow.js ในเบราว์เซอร์) • Active: <span className="font-semibold text-primary">{activeRun?.name ?? '—'}</span>
             {activeRun?.finalAcc && <> (Acc {(activeRun.finalAcc * 100).toFixed(2)}%)</>}
           </p>
         </div>

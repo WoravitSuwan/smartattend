@@ -5,6 +5,7 @@ import { getRuns, getActiveModelId, type TrainingRun } from '@/lib/training-stor
 import { getAllDatasets, deleteDataset, type FaceDataset } from '@/lib/dataset-store';
 import { toast } from 'sonner';
 import { exportRunCSV, exportRunPDF } from '@/lib/run-report';
+import ExperimentalFeatureNotice from '@/components/ExperimentalFeatureNotice';
 
 function exportPdf(run: TrainingRun) {
   toast.promise(exportRunPDF(run), {
@@ -81,10 +82,14 @@ export default function AdminTrainingHistoryPage() {
 
   return (
     <div className="p-4 md:p-8 space-y-5">
+      <ExperimentalFeatureNotice />
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold font-display text-foreground flex items-center gap-2">
             <History className="w-6 h-6 text-primary" /> ประวัติการเทรนของนักศึกษา
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-warning/15 text-warning border border-warning/30">
+              ทดลอง
+            </span>
           </h1>
           <p className="text-sm text-muted-foreground">
             ติดตามผลการเทรนรายบุคคลจากการลงทะเบียนใบหน้า • คลิก "ดูรูปภาพ" เพื่อดู Dataset จริง
