@@ -10,7 +10,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.parse-schedule-image]
-verify_jwt = false
+verify_jwt = true
 
 [functions.import-course-roster]
 verify_jwt = true
