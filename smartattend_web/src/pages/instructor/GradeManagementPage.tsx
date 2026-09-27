@@ -233,10 +233,9 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
   }, [items, students, grades]);
 
   const saveAll = async () => {
-    if (items.length > 0 && totalWeight !== 100) {
-      toast.error(`น้ำหนักรวมต้องเท่ากับ 100% พอดี (ตอนนี้ ${totalWeight}%) กรุณาปรับหัวข้อคะแนนก่อนบันทึก`);
-      return;
-    }
+    // ไม่ตรวจน้ำหนักรวมที่นี่โดยเจตนา — การกรอกคะแนนกับการตั้งน้ำหนักเป็นคนละ
+    // เรื่องกัน ต้นเทอมที่ยังไม่รู้ว่าจะมีงานกี่ชิ้น น้ำหนักยังไม่ครบ 100 เป็น
+    // เรื่องปกติ กฎน้ำหนักรวม 100 ถูกบังคับที่ฐานข้อมูลตอน "ประกาศผล" แทน
     const changes: { itemId: string; studentId: string; value: number | null }[] = [];
     let hasCorrection = false;
     for (const it of items) {
@@ -274,7 +273,11 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
     );
     const failed = results.filter(r => r && (r as { error?: unknown }).error);
     setSaving(false);
-    if (failed.length > 0) { toast.error(`บันทึกไม่สำเร็จ ${failed.length} รายการ`); return; }
+    if (failed.length > 0) {
+      const first = (failed[0] as { error?: { message?: string } }).error;
+      toast.error(dbMessage(first ?? null, `บันทึกไม่สำเร็จ ${failed.length} รายการ`));
+      return;
+    }
     await logAudit({
       action: 'grade.update', target: 'course', targetId: courseId,
       detail: `บันทึกคะแนน ${changes.length} รายการ${reason.trim() ? ` — เหตุผล: ${reason.trim()}` : ''}`,
@@ -358,7 +361,11 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
     toast.success(`คำนวณคะแนนเข้าเรียนอัตโนมัติ ${n} รายการ — กด "บันทึกคะแนน" เพื่อยืนยัน`);
   };
 
-  const totalWeight = useMemo(() => items.reduce((a, i) => a + (Number(i.weight) || 0), 0), [items]);
+  const totalWeight = useMemo(
+    () => Math.round(items.reduce((a, i) => a + (Number(i.weight) || 0), 0) * 100) / 100,
+    [items]);
+  /** น้ำหนักยังไม่ครบ 100 — เตือนค้างไว้ และล็อกเฉพาะปุ่มประกาศผล ไม่ล็อกการกรอกคะแนน */
+  const weightIncomplete = items.length > 0 && totalWeight !== 100;
 
   const body = (
       <div className={embedded ? 'space-y-4' : 'px-4 py-4 space-y-4'}>
@@ -387,8 +394,12 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
                   <Plus className="w-3.5 h-3.5" /> เพิ่ม
                 </button>
               </div>
-              {totalWeight !== 100 && items.length > 0 && (
-                <p className="text-[10px] text-warning">น้ำหนักรวมยังไม่เท่ากับ 100%</p>
+              {weightIncomplete && (
+                <p className="text-[10px] text-warning leading-relaxed">
+                  น้ำหนักรวมยังไม่เท่ากับ 100% (ตอนนี้ {totalWeight}%
+                  {totalWeight < 100 ? ` ขาดอีก ${Math.round((100 - totalWeight) * 100) / 100}%` : ' เกินมา ' + (Math.round((totalWeight - 100) * 100) / 100) + '%'})
+                  — กรอกคะแนนได้ปกติ แต่ยังประกาศผลไม่ได้จนกว่าจะครบ 100%
+                </p>
               )}
 
               {items.map(it => (
@@ -486,12 +497,18 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
             </button>
 
             {items.some(i => i.category === 'final') && (
-              <button onClick={() => setPublishAsk(true)} disabled={publishing || published}
+              <button onClick={() => setPublishAsk(true)}
+                disabled={publishing || published || weightIncomplete}
+                title={weightIncomplete ? `น้ำหนักรวมต้องเท่ากับ 100% ก่อนประกาศผล (ตอนนี้ ${totalWeight}%)` : undefined}
                 className={`w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold disabled:opacity-70 ${
                   published ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning border border-warning/30'
                 }`}>
                 {publishing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
-                {published ? 'ประกาศผลปลายภาคแล้ว' : 'ประกาศผลสอบปลายภาค'}
+                {published
+                  ? 'ประกาศผลปลายภาคแล้ว'
+                  : weightIncomplete
+                    ? `ประกาศผลไม่ได้ — น้ำหนักรวม ${totalWeight}% ยังไม่ครบ 100%`
+                    : 'ประกาศผลสอบปลายภาค'}
               </button>
             )}
 
