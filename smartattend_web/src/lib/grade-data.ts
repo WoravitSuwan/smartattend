@@ -168,6 +168,27 @@ export function weightedTotal(
   };
 }
 
+/**
+ * ตรวจว่าคะแนนที่กรอกใช้ได้หรือไม่ คืนข้อความภาษาไทย หรือ null เมื่อใช้ได้
+ *
+ * ใช้ตัวเดียวกันทั้งตอนพิมพ์และตอนกดบันทึก และมีการตรวจชุดเดียวกันอยู่ใน
+ * RPC upsert_student_grade ด้วย เพราะแอตทริบิวต์ max ของ <input type="number">
+ * ไม่ได้ห้ามพิมพ์หรือวางค่าเกิน และการยิง REST ตรงข้ามหน้าจอได้ทั้งหมด
+ *
+ *   null/undefined = ยังไม่กรอก ถือว่าใช้ได้ (ไม่ใช่ 0)
+ */
+export function validateScore(
+  item: Pick<GradeItem, 'max_score'>, value: number | null | undefined,
+): string | null {
+  if (value == null) return null;
+  if (!Number.isFinite(value)) return 'ไม่ใช่ตัวเลข';
+  const max = maxScoreOf(item);
+  if (max == null) return 'หัวข้อนี้ยังตั้งคะแนนเต็มไม่ถูกต้อง';
+  if (value < 0) return 'ติดลบไม่ได้';
+  if (value > max) return `เกินคะแนนเต็ม (${max})`;
+  return null;
+}
+
 /** น้ำหนักที่ตรวจแล้วครบ 100 หรือยัง (เผื่อความคลาดเคลื่อนของทศนิยม) */
 export function isFullyGraded(r: Pick<WeightedResult, 'usedWeight'>): boolean {
   return r.usedWeight >= 99.99;

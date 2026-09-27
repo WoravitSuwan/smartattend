@@ -5,7 +5,8 @@ import { fetchInstructorCourses, fetchSummary, type SummaryRow } from '@/lib/att
 import {
   attendanceScore, categoryLabels, deleteGradeItem, fetchGradeItems, fetchStudentGrades,
   gradeColor, isFullyGraded, letterGrade, maxScoreOf, publishFinalGrades, saveGradeItem,
-  upsertGrade, weightedTotal, type GradeCategory, type GradeItem, type StudentGrade,
+  upsertGrade, validateScore, weightedTotal,
+  type GradeCategory, type GradeItem, type StudentGrade,
 } from '@/lib/grade-data';
 import { supabase } from '@/integrations/supabase/client';
 import * as XLSX from 'xlsx';
@@ -187,6 +188,20 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
     setGrades(prev => ({ ...prev, [`${itemId}:${studentId}`]: Number.isNaN(v as number) ? null : v }));
   };
 
+  /** ช่องที่กรอกผิดทั้งหมด คีย์เดียวกับ grades
+   *  ตรวจทันทีที่พิมพ์ ไม่รอกดบันทึก เพราะอาจารย์ต้องรู้ตรงช่องที่พิมพ์ผิด */
+  const invalidCells = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const it of items) {
+      for (const st of students) {
+        const key = `${it.id}:${st.id}`;
+        const err = validateScore(it, grades[key]);
+        if (err) out[key] = err;
+      }
+    }
+    return out;
+  }, [items, students, grades]);
+
   const saveAll = async () => {
     if (items.length > 0 && totalWeight !== 100) {
       toast.error(`น้ำหนักรวมต้องเท่ากับ 100% พอดี (ตอนนี้ ${totalWeight}%) กรุณาปรับหัวข้อคะแนนก่อนบันทึก`);
@@ -205,22 +220,16 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
     }
     if (changes.length === 0) { toast.error('ยังไม่มีการเปลี่ยนแปลง'); return; }
 
-    // คะแนนเกินเต็มหรือติดลบ: บอกให้แก้ก่อน ไม่ส่งไปให้ฐานข้อมูล clamp เงียบ ๆ
-    // (ฐานข้อมูลยัง clamp อยู่เป็นด่านสุดท้าย เผื่อมีการยิง REST เข้ามาตรง ๆ)
-    const bad = changes.filter(c => {
-      if (c.value == null) return false;
-      const it = items.find(i => i.id === c.itemId);
-      if (!it) return true;
-      const m = maxScoreOf(it);
-      return m == null || c.value < 0 || c.value > m;
-    });
-    if (bad.length > 0) {
-      const first = bad[0];
-      const it = items.find(i => i.id === first.itemId);
-      const st = students.find(s => s.id === first.studentId);
+    // ช่องที่กรอกผิด: บอกให้แก้ก่อน ไม่ส่งไปให้ฐานข้อมูลปฏิเสธทีละรายการ
+    // (ฐานข้อมูลยังปฏิเสธซ้ำอีกชั้น เผื่อมีการยิง REST เข้ามาตรง ๆ)
+    const badKeys = Object.keys(invalidCells);
+    if (badKeys.length > 0) {
+      const [itemId, studentId] = badKeys[0].split(':');
+      const it = items.find(i => i.id === itemId);
+      const st = students.find(x => x.id === studentId);
       toast.error(
-        `คะแนนต้องอยู่ระหว่าง 0 - ${(it && maxScoreOf(it)) ?? '?'} — ตรวจสอบ ${st?.name ?? 'นักศึกษา'} หัวข้อ "${it?.name ?? '?'}"`
-        + (bad.length > 1 ? ` และอีก ${bad.length - 1} ช่อง` : ''),
+        `${st?.name ?? 'นักศึกษา'} หัวข้อ "${it?.name ?? '?'}": ${invalidCells[badKeys[0]]}`
+        + (badKeys.length > 1 ? ` และอีก ${badKeys.length - 1} ช่องที่กรอกผิด` : ''),
       );
       return;
     }
@@ -432,7 +441,14 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
               placeholder="เหตุผลในการแก้ไข (จำเป็นถ้าแก้คะแนนที่เคยบันทึกไว้แล้ว)"
               className="w-full px-3 py-2 rounded-xl bg-muted text-xs text-foreground outline-none resize-none" />
 
-            <button onClick={saveAll} disabled={saving || items.length === 0}
+            {Object.keys(invalidCells).length > 0 && (
+              <p className="text-[11px] text-destructive font-medium">
+                มีช่องที่กรอกผิด {Object.keys(invalidCells).length} ช่อง (ไฮไลต์สีแดงในตาราง) — แก้ให้ครบก่อนบันทึก
+              </p>
+            )}
+
+            <button onClick={saveAll}
+              disabled={saving || items.length === 0 || Object.keys(invalidCells).length > 0}
               className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl gradient-primary text-primary-foreground text-xs font-semibold shadow-elevated disabled:opacity-50">
               {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} บันทึกคะแนน
             </button>
@@ -490,16 +506,26 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
                             <p className="font-medium text-foreground whitespace-nowrap">{s.name}</p>
                             <p className="text-[10px] text-muted-foreground">{s.code}</p>
                           </td>
-                          {items.map(it => (
-                            <td key={it.id} className="p-1.5 text-center">
-                              <input
-                                type="number" min={0} max={Number(it.max_score)}
-                                value={grades[`${it.id}:${s.id}`] ?? ''}
-                                onChange={e => setScore(it.id, s.id, e.target.value)}
-                                className="w-14 px-1.5 py-1 rounded-lg bg-muted text-center text-foreground outline-none"
-                              />
-                            </td>
-                          ))}
+                          {items.map(it => {
+                            const key = `${it.id}:${s.id}`;
+                            const err = invalidCells[key];
+                            return (
+                              <td key={it.id} className="p-1.5 text-center">
+                                <input
+                                  type="number" min={0} max={maxScoreOf(it) ?? undefined} step="any"
+                                  value={grades[key] ?? ''}
+                                  onChange={e => setScore(it.id, s.id, e.target.value)}
+                                  title={err ?? undefined}
+                                  aria-invalid={!!err}
+                                  className={`w-14 px-1.5 py-1 rounded-lg text-center outline-none ${
+                                    err
+                                      ? 'bg-destructive/15 text-destructive ring-1 ring-destructive'
+                                      : 'bg-muted text-foreground'
+                                  }`}
+                                />
+                              </td>
+                            );
+                          })}
                           <td className="p-2.5 text-center font-semibold text-foreground whitespace-nowrap">
                             {w.usedWeight > 0 ? `${w.earned.toFixed(1)} / ${w.usedWeight}` : '—'}
                           </td>
