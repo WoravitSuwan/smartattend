@@ -4,8 +4,8 @@ import { logAudit } from '@/lib/audit-log';
 import { fetchInstructorCourses, fetchSummary, type SummaryRow } from '@/lib/attendance-data';
 import {
   attendanceScore, categoryLabels, deleteGradeItem, fetchGradeItems, fetchStudentGrades,
-  gradeColor, letterGrade, maxScoreOf, publishFinalGrades, saveGradeItem, upsertGrade,
-  weightedTotal, type GradeCategory, type GradeItem, type StudentGrade,
+  gradeColor, isFullyGraded, letterGrade, maxScoreOf, publishFinalGrades, saveGradeItem,
+  upsertGrade, weightedTotal, type GradeCategory, type GradeItem, type StudentGrade,
 } from '@/lib/grade-data';
 import { supabase } from '@/integrations/supabase/client';
 import * as XLSX from 'xlsx';
@@ -141,7 +141,8 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
     // ลดคะแนนเต็มลง = คะแนนที่บันทึกไว้เกินเต็มใหม่จะถูกปรับลงมา บอกก่อนเสมอ
     if (editingId) {
       const before = items.find(i => i.id === editingId);
-      const over = before && max < maxScoreOf(before)
+      const beforeMax = before ? maxScoreOf(before) : null;
+      const over = beforeMax != null && max < beforeMax
         ? students.filter(s => {
             const v = initialGrades[`${editingId}:${s.id}`];
             return v != null && v > max;
@@ -209,14 +210,16 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
     const bad = changes.filter(c => {
       if (c.value == null) return false;
       const it = items.find(i => i.id === c.itemId);
-      return !it || c.value < 0 || c.value > maxScoreOf(it);
+      if (!it) return true;
+      const m = maxScoreOf(it);
+      return m == null || c.value < 0 || c.value > m;
     });
     if (bad.length > 0) {
       const first = bad[0];
       const it = items.find(i => i.id === first.itemId);
       const st = students.find(s => s.id === first.studentId);
       toast.error(
-        `คะแนนต้องอยู่ระหว่าง 0 - ${it ? maxScoreOf(it) : '?'} — ตรวจสอบ ${st?.name ?? 'นักศึกษา'} หัวข้อ "${it?.name ?? '?'}"`
+        `คะแนนต้องอยู่ระหว่าง 0 - ${(it && maxScoreOf(it)) ?? '?'} — ตรวจสอบ ${st?.name ?? 'นักศึกษา'} หัวข้อ "${it?.name ?? '?'}"`
         + (bad.length > 1 ? ` และอีก ${bad.length - 1} ช่อง` : ''),
       );
       return;
@@ -306,7 +309,9 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
       for (const s of students) {
         const row = summary.find(r => r.student_id === s.id && r.course_id === courseId);
         if (!row) continue;
-        next[`${it.id}:${s.id}`] = attendanceScore(row.attendance_rate, maxScoreOf(it));
+        const max = maxScoreOf(it);
+        if (max == null) continue;
+        next[`${it.id}:${s.id}`] = attendanceScore(row.attendance_rate, max);
         n++;
       }
     }
@@ -460,19 +465,24 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
                         </th>
                       ))}
                       <th className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
-                        รวม<br /><span className="text-[9px] font-normal">/{items.reduce((a, i) => a + (Number(i.weight) || 0), 0)}</span>
+                        ได้<br /><span className="text-[9px] font-normal">/ ที่ตรวจแล้ว</span>
                       </th>
                       <th className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
-                        เกรด<br /><span className="text-[9px] font-normal">จากที่ตรวจแล้ว</span>
+                        ร้อยละ<br /><span className="text-[9px] font-normal">ของที่ตรวจแล้ว</span>
+                      </th>
+                      <th className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
+                        เกรด<br /><span className="text-[9px] font-normal">คาดการณ์</span>
                       </th>
                     </tr>
                   </thead>
                   <tbody>
                     {students.map((s, i) => {
-                      // เทียบเกรดจาก "เปอร์เซ็นต์ของส่วนที่ตรวจแล้ว" ไม่ใช่จาก total
-                      // เพราะ total นับหัวข้อที่ยังไม่ตรวจเป็น 0 ต้นเทอมจะ F ทั้งห้อง
+                      // เทียบเกรดจากร้อยละของ "ส่วนที่ตรวจแล้ว" ไม่ใช่จาก earned ดิบ
+                      // เพราะ earned มีตัวหารเป็น usedWeight ไม่ใช่ 100
+                      // ต้นเทอมที่ตรวจแค่กลางภาค ถ้าเทียบ earned ตรง ๆ จะ F ทั้งห้อง
                       const w = weightedTotal(items, id => grades[`${id}:${s.id}`] ?? null);
-                      const g = w.percentOfGraded == null ? null : letterGrade(w.percentOfGraded);
+                      const g = w.normalized == null ? null : letterGrade(w.normalized);
+                      const done = isFullyGraded(w);
                       return (
                         <motion.tr key={s.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
                           className="border-b border-border last:border-0">
@@ -491,15 +501,13 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
                             </td>
                           ))}
                           <td className="p-2.5 text-center font-semibold text-foreground whitespace-nowrap">
-                            {w.total.toFixed(1)}
-                            {!w.complete && (
-                              <span className="block text-[9px] font-normal text-muted-foreground">
-                                ตรวจแล้ว {w.usedWeight}%
-                              </span>
-                            )}
+                            {w.usedWeight > 0 ? `${w.earned.toFixed(1)} / ${w.usedWeight}` : '—'}
+                          </td>
+                          <td className="p-2.5 text-center font-semibold text-foreground whitespace-nowrap">
+                            {w.normalized == null ? '—' : `${w.normalized.toFixed(1)}%`}
                           </td>
                           <td className={`p-2.5 text-center font-bold whitespace-nowrap ${g ? gradeColor(g) : 'text-muted-foreground'}`}>
-                            {g == null ? '—' : (w.complete ? g : `${g}*`)}
+                            {g == null ? '—' : (done ? g : `${g}*`)}
                           </td>
                         </motion.tr>
                       );
@@ -507,8 +515,10 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
                   </tbody>
                 </table>
                 <p className="px-3 pb-3 pt-1 text-[10px] text-muted-foreground leading-relaxed">
-                  ช่อง "รวม" คือคะแนนที่ได้จากน้ำหนักทั้งหมด {totalWeight}% ของรายวิชา ·
-                  เกรดคิดจากเปอร์เซ็นต์ของหัวข้อที่ตรวจแล้วเท่านั้น เครื่องหมาย * = ยังตรวจไม่ครบทุกหัวข้อ เกรดยังเปลี่ยนได้
+                  ช่อง "ได้" คือคะแนนที่ได้เทียบกับน้ำหนักที่ตรวจแล้ว ไม่ใช่เทียบ 100 ·
+                  หัวข้อที่ยังไม่ตรวจไม่ถูกนับเป็นศูนย์และไม่ถูกนับในตัวหาร ·
+                  เครื่องหมาย * = ยังตรวจไม่ครบ 100% เกรดยังเปลี่ยนได้ ·
+                  นักศึกษาจะไม่เห็นตัวอักษรเกรดจนกว่าจะตรวจครบและกดประกาศผล
                 </p>
               </div>
             )}

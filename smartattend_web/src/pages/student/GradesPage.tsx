@@ -2,8 +2,8 @@ import MobileLayout from '@/components/MobileLayout';
 import { useAuth } from '@/lib/auth-context';
 import { fetchEnrolledCourses } from '@/lib/attendance-data';
 import {
-  categoryLabels, fetchGradeItems, fetchStudentGrades, gradeColor, gradePoint,
-  letterGrade, maxScoreOf, weightedTotal, type GradeItem,
+  canShowLetterGrade, categoryLabels, fetchGradeItems, fetchStudentGrades, gradeColor,
+  gradePoint, isFullyGraded, letterGrade, maxScoreOf, weightedTotal, type GradeItem,
 } from '@/lib/grade-data';
 import { motion } from 'framer-motion';
 import { BarChart3, GraduationCap } from 'lucide-react';
@@ -14,16 +14,16 @@ interface CourseGrade {
   code: string;
   name: string;
   semester: string | null;
+  finalPublished: boolean;
   items: GradeItem[];
   scores: Record<string, number | null>;
-  /** คะแนนที่ได้จาก 100 คะแนนเต็มของวิชา (ส่วนที่ยังไม่ตรวจ = 0) */
-  total: number;
+  /** คะแนนที่ได้ เทียบกับ usedWeight (ไม่ใช่เทียบ 100) */
+  earned: number;
   usedWeight: number;
   declaredWeight: number;
-  /** เปอร์เซ็นต์เฉพาะส่วนที่ตรวจแล้ว — ตัวที่ใช้เทียบเกรด */
-  percentOfGraded: number | null;
-  complete: boolean;
-  /** null เมื่อยังไม่มีคะแนนเลย (ยังไม่ต้องบอกเกรด) */
+  /** ร้อยละของส่วนที่ตรวจแล้ว */
+  normalized: number | null;
+  /** ตัวอักษรเกรด — null เมื่อยังไม่ถึงเวลาที่จะบอกได้ */
   grade: string | null;
 }
 
@@ -39,25 +39,29 @@ const GradesPage = () => {
       setLoading(true);
       const courses = await fetchEnrolledCourses(user.id);
       const out: CourseGrade[] = [];
-      for (const c of courses as { id: string; code: string; name: string; semester: string | null }[]) {
+      for (const c of courses as {
+        id: string; code: string; name: string; semester: string | null;
+        final_grade_published: boolean | null;
+      }[]) {
         const items = await fetchGradeItems(c.id);
         if (items.length === 0) continue;
         const gs = await fetchStudentGrades(items.map(i => i.id), user.id);
         const scores: Record<string, number | null> = {};
         gs.forEach(g => { scores[g.grade_item_id] = g.score; });
         const w = weightedTotal(items, id => scores[id] ?? null);
+        const finalPublished = !!c.final_grade_published;
         out.push({
           courseId: c.id, code: c.code, name: c.name, semester: c.semester,
-          items, scores,
-          total: w.total,
+          finalPublished, items, scores,
+          earned: w.earned,
           usedWeight: w.usedWeight,
           declaredWeight: w.declaredWeight,
-          percentOfGraded: w.percentOfGraded,
-          complete: w.complete,
-          // เทียบเกรดจากเปอร์เซ็นต์ของ "ส่วนที่ตรวจแล้ว" ไม่ใช่จาก total
-          // ถ้าเทียบจาก total ตรง ๆ นักศึกษาที่ได้ 59.5 จากน้ำหนักที่ตรวจแล้ว
-          // 70% (= 85%) จะขึ้นว่า D+ และต้นเทอมที่ตรวจแค่กลางภาคจะเป็น F ทั้งห้อง
-          grade: w.percentOfGraded == null ? null : letterGrade(w.percentOfGraded),
+          normalized: w.normalized,
+          // ตัวอักษรเกรดแสดงได้เมื่อ "ตรวจครบ 100 และประกาศผลแล้ว" เท่านั้น
+          // ระหว่างนั้นแสดงแค่ว่าได้กี่คะแนนจากน้ำหนักที่ตรวจแล้ว
+          grade: canShowLetterGrade(w, finalPublished) && w.normalized != null
+            ? letterGrade(w.normalized)
+            : null,
         });
       }
       if (!cancelled) { setRows(out); setLoading(false); }
@@ -70,9 +74,9 @@ const GradesPage = () => {
     let points = 0;
     let count = 0;
     for (const r of rows) {
-      // นับเฉพาะวิชาที่ตรวจครบทุกหัวข้อแล้ว — วิชาที่ยังตรวจไม่ครบยังไม่มีเกรดจริง
+      // นับเฉพาะวิชาที่มีเกรดจริงแล้ว (ตรวจครบ + ประกาศผล) วิชาที่ยังตรวจไม่ครบ
       // ถ้านับด้วย GPAX จะเป็นตัวเลขที่เปลี่ยนไปมาทุกครั้งที่อาจารย์กรอกคะแนน
-      if (!r.complete || r.grade == null) continue;
+      if (r.grade == null) continue;
       const p = gradePoint(r.grade);
       const sem = r.semester ?? 'อื่นๆ';
       const cur = bySemester.get(sem) ?? { points: 0, count: 0 };
@@ -97,7 +101,7 @@ const GradesPage = () => {
                 <GraduationCap className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-xs text-primary-foreground/70">สรุปผลการศึกษา (วิชาที่ตรวจคะแนนครบแล้ว)</p>
+                <p className="text-xs text-primary-foreground/70">สรุปผลการศึกษา (เฉพาะวิชาที่ประกาศผลแล้ว)</p>
                 <p className="text-2xl font-bold font-display">GPAX {summary.gpax.toFixed(2)}</p>
               </div>
               <div className="ml-auto text-right">
@@ -139,15 +143,21 @@ const GradesPage = () => {
                 <p className="text-xs text-muted-foreground truncate">{r.name}</p>
               </div>
               <div className="text-right shrink-0">
-                <p className="text-xl font-bold font-display text-primary">
-                  {r.percentOfGraded == null ? '—' : `${r.percentOfGraded.toFixed(1)}%`}
-                </p>
-                {r.grade == null ? (
-                  <p className="text-[10px] font-semibold text-muted-foreground">ยังไม่มีคะแนน</p>
+                {r.usedWeight > 0 ? (
+                  <>
+                    <p className="text-xl font-bold font-display text-primary leading-tight">
+                      {r.earned.toFixed(1)}
+                      <span className="text-xs font-medium text-muted-foreground"> / {r.usedWeight}</span>
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      คิดเป็น {r.normalized!.toFixed(1)}% ของที่ตรวจแล้ว
+                    </p>
+                  </>
                 ) : (
-                  <p className={`text-[10px] font-semibold ${gradeColor(r.grade)}`}>
-                    {r.complete ? 'เกรด' : 'เกรดคาดการณ์'} {r.grade}
-                  </p>
+                  <p className="text-xs text-muted-foreground">ยังไม่มีคะแนน</p>
+                )}
+                {r.grade != null && (
+                  <p className={`text-xs font-bold mt-0.5 ${gradeColor(r.grade)}`}>เกรด {r.grade}</p>
                 )}
               </div>
             </div>
@@ -155,7 +165,8 @@ const GradesPage = () => {
             <div className="space-y-2">
               {r.items.map(it => {
                 const s = r.scores[it.id];
-                const max = maxScoreOf(it);
+                const max = maxScoreOf(it);   // null = คะแนนเต็มของหัวข้อนี้ใช้ไม่ได้
+                const pct = s == null || max == null ? 0 : Math.min(100, (s / max) * 100);
                 return (
                   <div key={it.id} className="flex items-center gap-3">
                     <span className="text-xs text-muted-foreground w-28 truncate" title={`${categoryLabels[it.category]} · น้ำหนัก ${it.weight}%`}>
@@ -163,12 +174,14 @@ const GradesPage = () => {
                     </span>
                     <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
                       <motion.div initial={{ width: 0 }}
-                        animate={{ width: `${s == null ? 0 : Math.min(100, (s / max) * 100)}%` }}
+                        animate={{ width: `${pct}%` }}
                         transition={{ delay: i * 0.06 + 0.25, duration: 0.5 }}
                         className="h-full rounded-full gradient-primary" />
                     </div>
                     <span className="text-xs font-semibold text-foreground w-14 text-right">
-                      {s == null ? (it.category === 'final' ? 'รอประกาศ' : 'รอตรวจ') : `${s}/${max}`}
+                      {max == null
+                        ? 'ตั้งค่าไม่ถูก'
+                        : s == null ? (it.category === 'final' ? 'รอประกาศ' : 'รอตรวจ') : `${s}/${max}`}
                     </span>
                   </div>
                 );
@@ -176,9 +189,13 @@ const GradesPage = () => {
             </div>
 
             <p className="text-[10px] text-muted-foreground text-center mt-3 leading-relaxed">
-              {r.complete
-                ? `ตรวจคะแนนครบแล้ว (น้ำหนักรวม ${r.declaredWeight}%) · ได้ ${r.total.toFixed(1)} จาก ${r.declaredWeight} คะแนน`
-                : `ตรวจแล้ว ${r.usedWeight}% จากน้ำหนักทั้งหมด ${r.declaredWeight}% — เปอร์เซ็นต์ข้างบนคิดจากส่วนที่ตรวจแล้วเท่านั้น เกรดอาจเปลี่ยนแปลงได้`}
+              {r.grade != null
+                ? `ประกาศผลแล้ว · ได้ ${r.earned.toFixed(1)} จาก ${r.usedWeight} คะแนน`
+                : isFullyGraded(r)
+                  ? `ตรวจคะแนนครบแล้ว รอประกาศผล — ยังไม่แสดงเกรดจนกว่าอาจารย์จะประกาศ`
+                  : `ยังประเมินไม่ครบ · ตรวจแล้ว ${r.usedWeight}% จากน้ำหนักทั้งหมด ${r.declaredWeight}% ` +
+                    `(เหลืออีก ${Math.max(0, +(r.declaredWeight - r.usedWeight).toFixed(2))}%) — ` +
+                    `ยังไม่แสดงตัวอักษรเกรดเพราะคิดจากคะแนนแค่บางส่วน`}
             </p>
           </motion.div>
         ))}

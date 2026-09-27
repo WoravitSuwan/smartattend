@@ -93,58 +93,98 @@ export async function publishFinalGrades(courseId: string) {
   return supabase.rpc('publish_final_grades', { _course_id: courseId });
 }
 
-/** คะแนนเต็มของหัวข้อ — ใช้ 100 เฉพาะเมื่อค่าใช้ไม่ได้จริง (ว่าง/ติดลบ/ไม่ใช่ตัวเลข)
- *  ห้ามใช้ `Number(x) || 100` เพราะคะแนนเต็ม 0 จะถูกเปลี่ยนเป็น 100 เงียบ ๆ */
-export function maxScoreOf(item: Pick<GradeItem, 'max_score'>): number {
+/** คะแนนเต็มของหัวข้อ
+ *
+ *  ห้ามใช้ `Number(x) || 100` — คะแนนเต็ม 0 จะถูกเปลี่ยนเป็น 100 เงียบ ๆ
+ *  คืน null เมื่อค่าใช้คำนวณไม่ได้ (ว่าง / 0 / ติดลบ / ไม่ใช่ตัวเลข) เพื่อให้
+ *  ผู้เรียกตัดสินใจเองว่าจะข้ามหัวข้อนั้นหรือแจ้งเตือน ไม่ใช่แอบเดาเป็น 100
+ */
+export function maxScoreOf(item: Pick<GradeItem, 'max_score'>): number | null {
   const n = Number(item.max_score);
-  return Number.isFinite(n) && n > 0 ? n : 100;
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 export interface WeightedResult {
-  /** คะแนนที่ได้ เทียบกับ 100 คะแนนเต็มของวิชา — หัวข้อที่ยังไม่ตรวจนับเป็น 0 */
-  total: number;
-  /** ผลรวมน้ำหนัก (%) ของหัวข้อที่มีคะแนนแล้ว */
+  /** คะแนนที่ได้จริง มีหน่วยเป็น "คะแนนของวิชา" — เทียบกับ usedWeight ไม่ใช่ 100
+   *  ยังไม่ปัดเศษ ให้หน้าจอปัดตอนแสดงผลเท่านั้น */
+  earned: number;
+  /** ผลรวมน้ำหนัก (%) ของหัวข้อที่ตรวจแล้ว = ตัวหารที่ถูกต้องของ earned */
   usedWeight: number;
   /** ผลรวมน้ำหนัก (%) ของหัวข้อทั้งหมดที่อาจารย์ตั้งไว้ */
   declaredWeight: number;
-  /**
-   * เปอร์เซ็นต์ "เฉพาะส่วนที่ตรวจแล้ว" = total ÷ usedWeight × 100
-   * นี่คือตัวเลขที่ใช้เทียบเกรด ถ้าเอา total ไปเทียบตรง ๆ ทั้งห้องจะได้ F
-   * ตอนต้นเทอมเพราะน้ำหนักที่เหลือยังไม่ถูกตรวจ  null = ยังไม่มีคะแนนเลย
-   */
-  percentOfGraded: number | null;
-  /** true เมื่อทุกหัวข้อที่มีน้ำหนักถูกตรวจครบแล้ว (เกรดนิ่งแล้ว) */
-  complete: boolean;
+  /** earned ÷ usedWeight × 100 — ร้อยละของ "ส่วนที่ตรวจแล้ว"
+   *  null = ยังไม่มีคะแนนเลย (ยังไม่มีอะไรให้คิดร้อยละ) */
+  normalized: number | null;
+  /** หัวข้อที่ข้ามเพราะคะแนนเต็มใช้คำนวณไม่ได้ — ให้หน้าจอเตือนอาจารย์ */
+  invalidItems: string[];
 }
 
 /**
- * Weighted total for one student across the course grade items.
- * Items with weight 0 are ignored so partial setups don't distort the total.
+ * คะแนนถ่วงน้ำหนักของนักศึกษาหนึ่งคนในรายวิชาหนึ่ง
+ *
+ * กฎที่ต้องไม่พลาด
+ *   - หัวข้อที่ยังไม่ตรวจ (score = null) ไม่ถูกนับเป็น 0 และไม่ถูกนับในตัวหาร
+ *     ถ้านับ ต้นเทอมทุกคนจะกลายเป็น F ทั้งห้อง
+ *   - หัวข้อที่ถูก RLS ปิดบัง (เช่นคะแนนปลายภาคก่อนประกาศผล) มาถึงที่นี่เป็น
+ *     null เหมือนกัน จึงไม่ถูกนับใน usedWeight โดยอัตโนมัติ
+ *   - score = 0 คือ "ตรวจแล้วได้ศูนย์" ต่างจาก null คือ "ยังไม่ตรวจ" เด็ดขาด
+ *   - ไม่ปัดเศษระหว่างสะสมผลรวม ปัดเฉพาะตอนแสดงผล
  */
 export function weightedTotal(
   items: GradeItem[], scoreOf: (itemId: string) => number | null,
 ): WeightedResult {
-  let total = 0;
+  let earned = 0;
   let usedWeight = 0;
   let declaredWeight = 0;
+  const invalidItems: string[] = [];
+
   for (const it of items) {
-    const w = Number(it.weight) || 0;
-    if (w <= 0) continue;
-    declaredWeight += w;
-    const s = scoreOf(it.id);
-    if (s == null) continue;
+    const w = Number(it.weight);
+    if (!Number.isFinite(w) || w <= 0) continue;
+
     const max = maxScoreOf(it);
-    total += (s / max) * w;
+    if (max == null) {
+      // คะแนนเต็มใช้คำนวณไม่ได้ — ข้ามทั้งตัวตั้งและตัวหาร แล้วรายงานกลับไป
+      // ดีกว่าเดาเป็น 100 ซึ่งทำให้คะแนนของนักศึกษาผิดโดยไม่มีใครรู้
+      invalidItems.push(it.name);
+      continue;
+    }
+
+    declaredWeight += w;
+
+    const score = scoreOf(it.id);
+    if (score == null) continue;   // null = ยังไม่ตรวจ (ไม่ใช่ 0)
+
+    earned += (score / max) * w;
     usedWeight += w;
   }
-  const round2 = (n: number) => Math.round(n * 100) / 100;
+
   return {
-    total: round2(total),
-    usedWeight: round2(usedWeight),
-    declaredWeight: round2(declaredWeight),
-    percentOfGraded: usedWeight > 0 ? round2((total / usedWeight) * 100) : null,
-    complete: declaredWeight > 0 && usedWeight >= declaredWeight - 0.01,
+    earned,
+    usedWeight,
+    declaredWeight,
+    normalized: usedWeight > 0 ? (earned / usedWeight) * 100 : null,
+    invalidItems,
   };
+}
+
+/** น้ำหนักที่ตรวจแล้วครบ 100 หรือยัง (เผื่อความคลาดเคลื่อนของทศนิยม) */
+export function isFullyGraded(r: Pick<WeightedResult, 'usedWeight'>): boolean {
+  return r.usedWeight >= 99.99;
+}
+
+/**
+ * แสดงตัวอักษรเกรดได้หรือยัง
+ *
+ * เงื่อนไขสองข้อต้องครบทั้งคู่
+ *   1. ตรวจครบน้ำหนัก 100 แล้ว — ไม่งั้นเกรดที่เห็นคิดจากคะแนนแค่บางส่วน
+ *   2. อาจารย์ประกาศผลแล้ว — ก่อนประกาศ คะแนนปลายภาคถูกปิดบังอยู่
+ *      เกรดที่คำนวณได้จึงไม่ใช่เกรดจริง
+ */
+export function canShowLetterGrade(
+  r: Pick<WeightedResult, 'usedWeight'>, finalPublished: boolean,
+): boolean {
+  return isFullyGraded(r) && finalPublished;
 }
 
 /** Auto attendance score (0..max) derived from the attendance summary view. */

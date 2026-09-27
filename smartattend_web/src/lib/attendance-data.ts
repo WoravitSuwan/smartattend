@@ -106,7 +106,7 @@ export async function fetchInstructorCourses(instructorId: string) {
 export async function fetchEnrolledCourses(studentId: string) {
   const { data, error } = await (supabase as any)
     .from('course_enrollments')
-    .select('status, courses!inner ( id, code, name, section, semester )')
+    .select('status, courses!inner ( id, code, name, section, semester, final_grade_published )')
     .eq('student_id', studentId)
     .eq('status', 'confirmed');
   if (error) { console.error('fetchEnrolledCourses', error); return []; }
