@@ -29,21 +29,86 @@ export const categoryLabels: Record<GradeCategory, string> = {
   other: 'อื่นๆ',
 };
 
-/** Thai university letter grade from a 0-100 weighted total. */
-export function letterGrade(total: number): string {
-  if (total >= 80) return 'A';
-  if (total >= 75) return 'B+';
-  if (total >= 70) return 'B';
-  if (total >= 65) return 'C+';
-  if (total >= 60) return 'C';
-  if (total >= 55) return 'D+';
-  if (total >= 50) return 'D';
-  return 'F';
+/** หนึ่งระดับของเกณฑ์ตัดเกรด */
+export interface GradeScaleRow {
+  grade: string;
+  /** คะแนนขั้นต่ำ (0-100) ที่ได้เกรดนี้ */
+  min_score: number;
+  /** แต้มสำหรับคิด GPA */
+  grade_point: number;
 }
 
+/**
+ * เกณฑ์สำรองที่ใช้เมื่ออ่านจากฐานข้อมูลไม่ได้เท่านั้น
+ *
+ * ⚠️ นี่ไม่ใช่แหล่งความจริงของเกณฑ์ตัดเกรด แหล่งความจริงคือตาราง grade_scales
+ * (แถว course_id IS NULL = ค่าเริ่มต้นของระบบ, แถวที่มี course_id = เกณฑ์ที่
+ * อาจารย์กำหนดเองรายวิชา) ค่าที่นี่คัดลอกมาให้ตรงกับค่าเริ่มต้นที่ seed ไว้ใน
+ * migration 20260927150000 เพื่อให้หน้าจอยังใช้งานได้ตอนเน็ตหลุดหรือ query ล้ม
+ * ไม่ใช่เพื่อให้แก้ที่นี่ — ถ้าจะเปลี่ยนเกณฑ์ ต้องแก้ในฐานข้อมูล
+ */
+export const FALLBACK_GRADE_SCALE: GradeScaleRow[] = [
+  { grade: 'A',  min_score: 80, grade_point: 4.0 },
+  { grade: 'B+', min_score: 75, grade_point: 3.5 },
+  { grade: 'B',  min_score: 70, grade_point: 3.0 },
+  { grade: 'C+', min_score: 65, grade_point: 2.5 },
+  { grade: 'C',  min_score: 60, grade_point: 2.0 },
+  { grade: 'D+', min_score: 55, grade_point: 1.5 },
+  { grade: 'D',  min_score: 50, grade_point: 1.0 },
+  { grade: 'F',  min_score: 0,  grade_point: 0.0 },
+];
+
+/** อ่านเกณฑ์ที่มีผลจริงของรายวิชา — ของรายวิชาเองถ้ามี ไม่งั้นค่าเริ่มต้นของระบบ */
+export async function fetchGradeScale(courseId: string): Promise<{
+  scale: GradeScaleRow[]; isCourseSpecific: boolean; fromFallback: boolean;
+}> {
+  const { data, error } = await supabase.rpc('effective_grade_scale', { _course_id: courseId });
+  if (error || !data || data.length === 0) {
+    if (error) console.warn('fetchGradeScale — ใช้เกณฑ์สำรอง', error);
+    return { scale: FALLBACK_GRADE_SCALE, isCourseSpecific: false, fromFallback: true };
+  }
+  const rows = (data as { grade: string; min_score: number; grade_point: number; is_course_specific: boolean }[])
+    .map(r => ({ grade: r.grade, min_score: Number(r.min_score), grade_point: Number(r.grade_point) }))
+    .sort((a, b) => b.min_score - a.min_score);
+  return {
+    scale: rows,
+    isCourseSpecific: !!(data as { is_course_specific: boolean }[])[0]?.is_course_specific,
+    fromFallback: false,
+  };
+}
+
+/** ตัดเกรดจากเกณฑ์ที่ส่งเข้ามา — null เมื่อคะแนนต่ำกว่าทุกระดับในเกณฑ์ */
+export function letterGradeFrom(scale: GradeScaleRow[], total: number): string | null {
+  const hit = [...scale].sort((a, b) => b.min_score - a.min_score)
+    .find(r => total >= r.min_score);
+  return hit?.grade ?? null;
+}
+
+/** แต้ม GPA จากเกณฑ์ที่ส่งเข้ามา */
+export function gradePointFrom(scale: GradeScaleRow[], grade: string): number {
+  return scale.find(r => r.grade === grade)?.grade_point ?? 0;
+}
+
+/** ตัดเกรดด้วยเกณฑ์สำรอง — ใช้เฉพาะเมื่อยังไม่มีเกณฑ์จากฐานข้อมูลในมือ
+ *  @deprecated ให้ใช้ letterGradeFrom(scale, total) กับเกณฑ์ที่ fetch มา */
+export function letterGrade(total: number): string {
+  return letterGradeFrom(FALLBACK_GRADE_SCALE, total) ?? 'F';
+}
+
+/** @deprecated ให้ใช้ gradePointFrom(scale, grade) */
 export function gradePoint(g: string): number {
-  const map: Record<string, number> = { A: 4, 'B+': 3.5, B: 3, 'C+': 2.5, C: 2, 'D+': 1.5, D: 1, F: 0 };
-  return map[g] ?? 0;
+  return gradePointFrom(FALLBACK_GRADE_SCALE, g);
+}
+
+/** บันทึกเกณฑ์ตัดเกรดของรายวิชา ส่ง [] เพื่อกลับไปใช้ค่าเริ่มต้นของระบบ */
+export async function saveCourseGradeScale(
+  courseId: string, rows: GradeScaleRow[], reason?: string | null,
+) {
+  return supabase.rpc('save_course_grade_scale', {
+    _course_id: courseId,
+    _rows: rows as unknown as never,
+    _reason: reason ?? undefined,
+  });
 }
 
 export function gradeColor(g: string): string {

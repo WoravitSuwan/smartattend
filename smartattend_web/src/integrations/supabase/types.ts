@@ -1128,6 +1128,20 @@ export type Database = {
         Returns: { student_id: string; student_code: string; student_name: string }[]
       }
       grade_letter: { Args: { _course_id: string; _total: number }; Returns: string }
+      grade_point_of: { Args: { _course_id: string; _total: number }; Returns: number }
+      effective_grade_scale: {
+        Args: { _course_id: string }
+        Returns: {
+          grade: string
+          min_score: number
+          grade_point: number
+          is_course_specific: boolean
+        }[]
+      }
+      save_course_grade_scale: {
+        Args: { _course_id: string; _rows: Json; _reason?: string }
+        Returns: undefined
+      }
       check_in_attendance: {
         Args: {
           _confidence: number

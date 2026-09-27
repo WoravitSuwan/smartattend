@@ -4,9 +4,9 @@ import { logAudit } from '@/lib/audit-log';
 import { fetchInstructorCourses, fetchSummary, type SummaryRow } from '@/lib/attendance-data';
 import {
   attendanceScore, categoryLabels, deleteGradeItem, fetchGradeItems, fetchStudentGrades,
-  gradeColor, isFullyGraded, letterGrade, maxScoreOf, publishFinalGrades, saveGradeItem,
-  upsertGrade, validateScore, weightedTotal,
-  type GradeCategory, type GradeItem, type StudentGrade,
+  gradeColor, fetchGradeScale, isFullyGraded, letterGradeFrom, maxScoreOf, publishFinalGrades,
+  saveGradeItem, upsertGrade, validateScore, weightedTotal,
+  type GradeCategory, type GradeItem, type GradeScaleRow, type StudentGrade,
 } from '@/lib/grade-data';
 import { supabase } from '@/integrations/supabase/client';
 import * as XLSX from 'xlsx';
@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, Sparkles, Loader2, Save, Megaphone, Download, Upload, X } from 'lucide-react';
+import GradeScalePanel from '@/components/GradeScalePanel';
 
 interface Course { id: string; code: string; name: string }
 interface Student { id: string; name: string; code: string }
@@ -35,6 +36,8 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [published, setPublished] = useState(false);
+  const [scale, setScale] = useState<GradeScaleRow[]>([]);
+  const [scaleIsCourseSpecific, setScaleIsCourseSpecific] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [reason, setReason] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -86,6 +89,10 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
     const { data: courseRow } = await supabase
       .from('courses').select('final_grade_published').eq('id', courseId).maybeSingle();
     setPublished(!!courseRow?.final_grade_published);
+
+    const sc = await fetchGradeScale(courseId);
+    setScale(sc.scale);
+    setScaleIsCourseSpecific(sc.isCourseSpecific);
 
     setSummary(await fetchSummary({ courseId }));
     setLoading(false);
@@ -420,6 +427,8 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
               )}
             </div>
 
+            <GradeScalePanel courseId={courseId} />
+
             <div className="flex gap-2">
               <button onClick={autoAttendance}
                 className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-card shadow-card text-xs font-semibold text-foreground">
@@ -497,7 +506,7 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
                       // เพราะ earned มีตัวหารเป็น usedWeight ไม่ใช่ 100
                       // ต้นเทอมที่ตรวจแค่กลางภาค ถ้าเทียบ earned ตรง ๆ จะ F ทั้งห้อง
                       const w = weightedTotal(items, id => grades[`${id}:${s.id}`] ?? null);
-                      const g = w.normalized == null ? null : letterGrade(w.normalized);
+                      const g = w.normalized == null ? null : letterGradeFrom(scale, w.normalized);
                       const done = isFullyGraded(w);
                       return (
                         <motion.tr key={s.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
@@ -544,7 +553,9 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
                   ช่อง "ได้" คือคะแนนที่ได้เทียบกับน้ำหนักที่ตรวจแล้ว ไม่ใช่เทียบ 100 ·
                   หัวข้อที่ยังไม่ตรวจไม่ถูกนับเป็นศูนย์และไม่ถูกนับในตัวหาร ·
                   เครื่องหมาย * = ยังตรวจไม่ครบ 100% เกรดยังเปลี่ยนได้ ·
-                  นักศึกษาจะไม่เห็นตัวอักษรเกรดจนกว่าจะตรวจครบและกดประกาศผล
+                  นักศึกษาจะไม่เห็นตัวอักษรเกรดจนกว่าจะตรวจครบและกดประกาศผล ·
+                  เกณฑ์ตัดเกรดที่ใช้: {scaleIsCourseSpecific ? 'ของรายวิชานี้' : 'ค่าเริ่มต้นของระบบ'}
+                  {scale.length > 0 && ` (${scale.map(r => `${r.grade}≥${r.min_score}`).join(' · ')})`}
                 </p>
               </div>
             )}

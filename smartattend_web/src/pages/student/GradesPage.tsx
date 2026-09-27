@@ -2,8 +2,9 @@ import MobileLayout from '@/components/MobileLayout';
 import { useAuth } from '@/lib/auth-context';
 import { fetchEnrolledCourses } from '@/lib/attendance-data';
 import {
-  canShowLetterGrade, categoryLabels, fetchGradeItems, fetchStudentGrades, gradeColor,
-  gradePoint, isFullyGraded, letterGrade, maxScoreOf, weightedTotal, type GradeItem,
+  canShowLetterGrade, categoryLabels, fetchGradeItems, fetchGradeScale, fetchStudentGrades,
+  gradeColor, gradePointFrom, isFullyGraded, letterGradeFrom, maxScoreOf, weightedTotal,
+  type GradeItem, type GradeScaleRow,
 } from '@/lib/grade-data';
 import { motion } from 'framer-motion';
 import { BarChart3, GraduationCap } from 'lucide-react';
@@ -25,6 +26,8 @@ interface CourseGrade {
   normalized: number | null;
   /** ตัวอักษรเกรด — null เมื่อยังไม่ถึงเวลาที่จะบอกได้ */
   grade: string | null;
+  /** เกณฑ์ตัดเกรดที่มีผลกับรายวิชานี้ (มาจากฐานข้อมูล) */
+  scale: GradeScaleRow[];
 }
 
 const GradesPage = () => {
@@ -50,6 +53,8 @@ const GradesPage = () => {
         gs.forEach(g => { scores[g.grade_item_id] = g.score; });
         const w = weightedTotal(items, id => scores[id] ?? null);
         const finalPublished = !!c.final_grade_published;
+        // เกณฑ์ตัดเกรดมาจากตาราง grade_scales ของรายวิชานั้น ไม่ฮาร์ดโค้ด
+        const { scale } = await fetchGradeScale(c.id);
         out.push({
           courseId: c.id, code: c.code, name: c.name, semester: c.semester,
           finalPublished, items, scores,
@@ -59,8 +64,9 @@ const GradesPage = () => {
           normalized: w.normalized,
           // ตัวอักษรเกรดแสดงได้เมื่อ "ตรวจครบ 100 และประกาศผลแล้ว" เท่านั้น
           // ระหว่างนั้นแสดงแค่ว่าได้กี่คะแนนจากน้ำหนักที่ตรวจแล้ว
+          scale,
           grade: canShowLetterGrade(w, finalPublished) && w.normalized != null
-            ? letterGrade(w.normalized)
+            ? letterGradeFrom(scale, w.normalized)
             : null,
         });
       }
@@ -77,7 +83,7 @@ const GradesPage = () => {
       // นับเฉพาะวิชาที่มีเกรดจริงแล้ว (ตรวจครบ + ประกาศผล) วิชาที่ยังตรวจไม่ครบ
       // ถ้านับด้วย GPAX จะเป็นตัวเลขที่เปลี่ยนไปมาทุกครั้งที่อาจารย์กรอกคะแนน
       if (r.grade == null) continue;
-      const p = gradePoint(r.grade);
+      const p = gradePointFrom(r.scale, r.grade);
       const sem = r.semester ?? 'อื่นๆ';
       const cur = bySemester.get(sem) ?? { points: 0, count: 0 };
       cur.points += p; cur.count += 1;
