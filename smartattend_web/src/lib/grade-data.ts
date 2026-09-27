@@ -152,6 +152,42 @@ export async function upsertGrade(
   });
 }
 
+export interface GradeSaveError {
+  grade_item_id: string;
+  student_id: string;
+  reason: string;
+}
+
+export interface GradeSaveResult {
+  ok: boolean;
+  saved: number;
+  errors: GradeSaveError[];
+}
+
+/**
+ * บันทึกคะแนนทั้งชุดในทรานแซกชันเดียว
+ *
+ * ของเดิมใช้ Promise.all ยิงทีละช่อง ถ้าช่องที่ 40 ล้มเหลว ช่อง 1-39 ถูกบันทึก
+ * ไปแล้ว หน้าจอกับฐานข้อมูลไม่ตรงกัน และผู้ใช้ไม่รู้ว่าช่องไหนพัง
+ *
+ * RPC ตรวจทุกแถวก่อนเขียน ถ้ามีแถวใดผิดจะคืนรายการที่ผิดทั้งหมดโดยยังไม่เขียน
+ * อะไรเลย ถ้าเกิดข้อผิดพลาดตอนเขียน ทรานแซกชันทั้งก้อนถูก rollback
+ */
+export async function saveStudentGrades(
+  courseId: string,
+  changes: { grade_item_id: string; student_id: string; score: number | null; note?: string | null }[],
+  reason?: string | null,
+): Promise<{ result: GradeSaveResult | null; error: { message?: string } | null }> {
+  const { data, error } = await supabase.rpc('save_student_grades', {
+    _course_id: courseId,
+    _changes: changes as unknown as never,
+    _reason: reason ?? undefined,
+  });
+  if (error) return { result: null, error };
+  const r = data as unknown as GradeSaveResult;
+  return { result: r, error: null };
+}
+
 /** Publishes final exam scores + final grade for a course, revealing them
  *  to students (RLS masks 'final' category rows until this is called). */
 export async function publishFinalGrades(courseId: string) {

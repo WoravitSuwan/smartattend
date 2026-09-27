@@ -1,11 +1,10 @@
 import MobileLayout from '@/components/MobileLayout';
 import { useAuth } from '@/lib/auth-context';
-import { logAudit } from '@/lib/audit-log';
 import { fetchInstructorCourses, fetchSummary, type SummaryRow } from '@/lib/attendance-data';
 import {
   attendanceScore, categoryLabels, deleteGradeItem, fetchGradeItems, fetchStudentGrades,
   gradeColor, fetchGradeScale, gradeItemScoreCount, isFullyGraded, letterGradeFrom, maxScoreOf,
-  publishFinalGrades, saveGradeItem, upsertGrade, validateScore, weightedTotal,
+  publishFinalGrades, saveGradeItem, saveStudentGrades, validateScore, weightedTotal,
   type GradeCategory, type GradeItem, type GradeScaleRow, type OverflowPolicy,
   type StudentGrade,
 } from '@/lib/grade-data';
@@ -54,6 +53,8 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
   /** ถามยืนยันการลบหัวข้อ */
   const [deleteAsk, setDeleteAsk] = useState<{ item: GradeItem; count: number } | null>(null);
   const [publishAsk, setPublishAsk] = useState(false);
+  /** ข้อผิดพลาดรายช่องที่ฐานข้อมูลคืนมาจากการบันทึกครั้งล่าสุด */
+  const [serverErrors, setServerErrors] = useState<Record<string, string>>({});
   const [newName, setNewName] = useState('');
   const [newCat, setNewCat] = useState<GradeCategory>('assignment');
   const [newMax, setNewMax] = useState('100');
@@ -214,8 +215,11 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
   };
 
   const setScore = (itemId: string, studentId: string, raw: string) => {
+    const key = `${itemId}:${studentId}`;
     const v = raw === '' ? null : Number(raw);
-    setGrades(prev => ({ ...prev, [`${itemId}:${studentId}`]: Number.isNaN(v as number) ? null : v }));
+    setGrades(prev => ({ ...prev, [key]: Number.isNaN(v as number) ? null : v }));
+    // แก้ช่องแล้วล้างคำทักท้วงของฐานข้อมูลในช่องนั้น ไม่ให้ค้างเป็นสีแดงทั้งที่แก้แล้ว
+    setServerErrors(prev => (prev[key] ? { ...prev, [key]: '' } : prev));
   };
 
   /** ช่องที่กรอกผิดทั้งหมด คีย์เดียวกับ grades
@@ -231,6 +235,11 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
     }
     return out;
   }, [items, students, grades]);
+
+  /** ช่องที่ต้องไฮไลต์ = ที่หน้าจอตรวจเจอ + ที่ฐานข้อมูลปฏิเสธ */
+  const badCells = useMemo(
+    () => ({ ...serverErrors, ...invalidCells }),
+    [serverErrors, invalidCells]);
 
   const saveAll = async () => {
     // ไม่ตรวจน้ำหนักรวมที่นี่โดยเจตนา — การกรอกคะแนนกับการตั้งน้ำหนักเป็นคนละ
@@ -268,22 +277,40 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
       return;
     }
     setSaving(true);
-    const results = await Promise.all(
-      changes.map(c => upsertGrade(c.itemId, c.studentId, c.value, undefined, reason.trim() || undefined)),
+    setServerErrors({});
+    // ทรานแซกชันเดียว: RPC ตรวจทุกแถวก่อนเขียน ถ้ามีแถวใดผิดจะไม่เขียนอะไรเลย
+    // และคืนรายการที่ผิดมาให้ไฮไลต์ ไม่มีการบันทึกครึ่ง ๆ กลาง ๆ อีก
+    const { result, error } = await saveStudentGrades(
+      courseId,
+      changes.map(c => ({ grade_item_id: c.itemId, student_id: c.studentId, score: c.value })),
+      reason.trim() || undefined,
     );
-    const failed = results.filter(r => r && (r as { error?: unknown }).error);
     setSaving(false);
-    if (failed.length > 0) {
-      const first = (failed[0] as { error?: { message?: string } }).error;
-      toast.error(dbMessage(first ?? null, `บันทึกไม่สำเร็จ ${failed.length} รายการ`));
+
+    if (error) {
+      console.error(error);
+      toast.error(dbMessage(error, 'บันทึกคะแนนไม่สำเร็จ'));
       return;
     }
-    await logAudit({
-      action: 'grade.update', target: 'course', targetId: courseId,
-      detail: `บันทึกคะแนน ${changes.length} รายการ${reason.trim() ? ` — เหตุผล: ${reason.trim()}` : ''}`,
-    });
+
+    if (result && !result.ok) {
+      // ไฮไลต์ช่องที่ฐานข้อมูลปฏิเสธ พร้อมเหตุผลของแต่ละช่อง
+      const map: Record<string, string> = {};
+      for (const e of result.errors) map[`${e.grade_item_id}:${e.student_id}`] = e.reason;
+      setServerErrors(map);
+      const first = result.errors[0];
+      const it = items.find(i => i.id === first?.grade_item_id);
+      const st = students.find(x => x.id === first?.student_id);
+      toast.error(
+        `ไม่ได้บันทึกอะไรเลย — ${st?.name ?? 'นักศึกษา'} หัวข้อ "${it?.name ?? '?'}": ${first?.reason ?? 'ข้อมูลไม่ถูกต้อง'}`
+        + (result.errors.length > 1 ? ` และอีก ${result.errors.length - 1} ช่อง` : ''),
+      );
+      return;
+    }
+
+    // audit log ของทั้งชุดถูกเขียนใน RPC แล้ว ไม่ต้องเรียก logAudit ซ้ำจากหน้าจอ
     setReason('');
-    toast.success('บันทึกคะแนนเรียบร้อย นักศึกษาจะได้รับการแจ้งเตือน');
+    toast.success(`บันทึกคะแนน ${result?.saved ?? 0} รายการเรียบร้อย นักศึกษาจะได้รับการแจ้งเตือน`);
     load();
   };
 
@@ -484,9 +511,10 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
               placeholder="เหตุผลในการแก้ไข (จำเป็นถ้าแก้คะแนนที่เคยบันทึกไว้แล้ว)"
               className="w-full px-3 py-2 rounded-xl bg-muted text-xs text-foreground outline-none resize-none" />
 
-            {Object.keys(invalidCells).length > 0 && (
+            {Object.keys(badCells).length > 0 && (
               <p className="text-[11px] text-destructive font-medium">
-                มีช่องที่กรอกผิด {Object.keys(invalidCells).length} ช่อง (ไฮไลต์สีแดงในตาราง) — แก้ให้ครบก่อนบันทึก
+                มีช่องที่กรอกผิด {Object.keys(badCells).length} ช่อง (ไฮไลต์สีแดงในตาราง) — แก้ให้ครบก่อนบันทึก
+                {Object.keys(serverErrors).length > 0 && ' · ยังไม่มีคะแนนใดถูกบันทึกจากการกดครั้งล่าสุด'}
               </p>
             )}
 
@@ -557,7 +585,7 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
                           </td>
                           {items.map(it => {
                             const key = `${it.id}:${s.id}`;
-                            const err = invalidCells[key];
+                            const err = badCells[key];
                             return (
                               <td key={it.id} className="p-1.5 text-center">
                                 <input

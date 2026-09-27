@@ -1101,6 +1101,15 @@ export type Database = {
         Returns: Json
       }
       grade_item_score_count: { Args: { _item_id: string }; Returns: number }
+      save_student_grades: {
+        Args: { _course_id: string; _changes: Json; _reason?: string }
+        Returns: Json
+      }
+      save_grade_item_weights: {
+        Args: { _course_id: string; _weights: Json; _reason?: string }
+        Returns: number
+      }
+      course_total_weight: { Args: { _course_id: string }; Returns: number }
       delete_grade_item: {
         Args: { _item_id: string; _reason?: string; _confirm_name?: string }
         Returns: number
