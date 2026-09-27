@@ -7,7 +7,6 @@ from __future__ import annotations
 import base64
 import logging
 import os
-from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -55,16 +54,6 @@ def _rpc(fn: str, payload: dict[str, Any] | None = None) -> Any:
                    headers=_HEADERS, json=payload or {}, timeout=25)
     r.raise_for_status()
     return r.json() if r.text else None
-
-
-def _upsert(table: str, payload: Any) -> list[dict]:
-    """POST ที่อัปเดตแถวเดิมแทนที่จะเพิ่มแถวใหม่ทุกครั้ง (ใช้ primary key ของตาราง)"""
-    h = dict(_HEADERS)
-    h["Prefer"] = "resolution=merge-duplicates,return=representation"
-    r = httpx.post(f"{SUPABASE_URL}/rest/v1/{table}",
-                   headers=h, json=payload, timeout=30)
-    r.raise_for_status()
-    return r.json() if r.text else []
 
 
 # ------------------------------------------------------------------ sessions
@@ -149,41 +138,90 @@ def already_checked_in(session_id: str, student_id: str) -> bool:
     return bool(rows)
 
 
-def submit_check_in(session_id: str, student_id: str, photo_jpeg: bytes,
-                    confidence: float, started_at: str,
-                    late_after_minutes: int) -> str:
-    """บันทึกการเข้าเรียนพร้อมภาพหลักฐาน คืนสถานะที่บันทึกจริง
+class CheckInRejected(Exception):
+    """เซิร์ฟเวอร์ปฏิเสธการเช็คชื่อด้วยเหตุผลที่ระบุไว้ชัดเจน
 
-    สถานะคำนวณจากเวลาของเซิร์ฟเวอร์เป็นหลัก ไม่ใช้นาฬิกาของ Pi
-    เพราะนาฬิกา Pi อาจคลาดเคลื่อนถ้าไม่ได้ซิงก์เวลา
+    ต่างจากความผิดพลาดของเครือข่าย: กรณีนี้ส่งซ้ำไปก็ถูกปฏิเสธเหมือนเดิม
+    (เช่น ถูกระงับสิทธิ์ ไม่ได้ลงทะเบียนวิชานี้ คาบปิดแล้ว)
+    """
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+#: ข้อความบนจอสำหรับเหตุผลที่เซิร์ฟเวอร์ปฏิเสธ
+REJECT_MESSAGES = {
+    "session_not_open": "คาบเรียนปิดแล้ว",
+    "session_not_found": "ไม่พบคาบเรียนนี้",
+    "scanning_paused": "อาจารย์สั่งหยุดสแกนชั่วคราว",
+    "not_enrolled": "ไม่มีรายชื่อในวิชานี้",
+    "attendance_blocked": "ถูกระงับสิทธิ์จากการขาดเรียน",
+    "forbidden": "อุปกรณ์ไม่มีสิทธิ์บันทึก",
+    "unauthorized": "อุปกรณ์ไม่มีสิทธิ์บันทึก",
+}
+
+
+def submit_check_in(session_id: str, student_id: str, photo_jpeg: bytes,
+                    confidence: float) -> dict:
+    """บันทึกการเข้าเรียนพร้อมภาพหลักฐาน คืนผลที่เซิร์ฟเวอร์บันทึกจริง
+
+    **อุปกรณ์ไม่คำนวณเวลาหรือสถานะเองเลย** — ส่งแค่ว่าใครคือใคร ความมั่นใจ
+    เท่าไร และภาพหลักฐาน แล้วให้ RPC record_attendance ตัดสิน on_time/late
+    ด้วย now() ของฐานข้อมูล
+
+    เหตุผล: Raspberry Pi ไม่มีนาฬิกาสำรอง (RTC) ถ้าบูตตอนไม่มีเน็ตเวลาจะเพี้ยน
+    ได้เป็นวัน (เครื่องในโครงงานนี้เคยเดินช้าไป 15 วัน) ของเดิมใช้
+    datetime.now() ของ Pi ตัดสินสถานะและใส่ checked_in_at เอง ทุกแถวจึงผิด
+    ทั้งเวลาและสถานะโดยไม่มีใครรู้
+
+    คืน dict: {"status": "on_time"|"late", "checked_in_at": str,
+               "already": bool, "server_time": str}
+    ยก CheckInRejected เมื่อเซิร์ฟเวอร์ปฏิเสธด้วยเหตุผลถาวร (ส่งซ้ำไม่ช่วย)
     """
     data_url = "data:image/jpeg;base64," + base64.b64encode(photo_jpeg).decode()
 
-    now = datetime.now(timezone.utc)
-    started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-    elapsed_min = (now - started).total_seconds() / 60
-    status = "late" if elapsed_min > late_after_minutes else "on_time"
+    try:
+        result = _rpc("record_attendance", {
+            "_session_id": session_id,
+            "_student_id": student_id,
+            "_confidence": round(float(confidence), 4),
+            "_photo": data_url,
+        })
+    except httpx.HTTPStatusError as e:
+        # PostgREST คืน 400 พร้อม message ของ RAISE EXCEPTION ใน body
+        reason = ""
+        try:
+            reason = (e.response.json() or {}).get("message", "")
+        except Exception:  # noqa: BLE001 — body ไม่ใช่ JSON ก็ถือว่าไม่รู้เหตุผล
+            reason = ""
+        if reason in REJECT_MESSAGES:
+            log.warning("เซิร์ฟเวอร์ปฏิเสธการเช็คชื่อ student=%s เหตุผล=%s",
+                        student_id, reason)
+            raise CheckInRejected(reason) from e
+        raise
 
-    _post("attendance_records", {
-        "session_id": session_id,
-        "student_id": student_id,
-        "photo_data_url": data_url,
-        "confidence": round(float(confidence), 4),
-        "status": status,
-        "checked_in_at": now.isoformat(),
-    })
-    log.info("บันทึกการเข้าเรียน student=%s status=%s conf=%.3f",
-             student_id, status, confidence)
-    return status
+    if not isinstance(result, dict) or not result.get("status"):
+        raise RuntimeError(f"record_attendance ตอบกลับไม่ถูกรูปแบบ: {result!r}")
+
+    log.info("บันทึกการเข้าเรียน student=%s status=%s (เวลาเซิร์ฟเวอร์ %s) "
+             "conf=%.3f ซ้ำ=%s",
+             student_id, result["status"], result.get("checked_in_at"),
+             confidence, result.get("already"))
+    return result
 
 
 def heartbeat() -> None:
-    """แจ้งว่าอุปกรณ์ยังทำงานอยู่ — อัปเดตแถวเดิมของอุปกรณ์นี้ (ไม่สร้างแถวใหม่ทุก 4 วิ)"""
+    """แจ้งว่าอุปกรณ์ยังทำงานอยู่ — อัปเดตแถวเดิมของอุปกรณ์นี้ (ไม่สร้างแถวใหม่ทุก 4 วิ)
+
+    เวลา seen_at ถูกเขียนด้วย now() ของเซิร์ฟเวอร์ใน RPC ไม่ใช่เวลาของ Pi
+    ด้วยเหตุผลเดียวกับการเช็คชื่อ: นาฬิกา Pi ที่เพี้ยนทำให้แผงสถานะบนหน้าเว็บ
+    บอกว่าอุปกรณ์ออฟไลน์ตลอดเวลา ทั้งที่เครื่องทำงานปกติ
+    """
     try:
-        _upsert("device_heartbeats", {
-            "device_code": DEVICE_CODE,
-            "room": ROOM or None,
-            "seen_at": datetime.now(timezone.utc).isoformat(),
+        _rpc("device_heartbeat", {
+            "_device_code": DEVICE_CODE,
+            "_room": ROOM or None,
         })
     except Exception as e:  # noqa: BLE001 — heartbeat ต้องไม่ล้มระบบหลัก
         log.debug("ส่ง heartbeat ไม่สำเร็จ (ข้ามได้): %s", e)

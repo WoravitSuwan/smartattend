@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 
 import cv2
+import httpx
 import numpy as np
 
 import supabase_client as sb
@@ -249,27 +250,52 @@ def main() -> None:
                 if confirmed and confirmed.student_id not in checked_in:
                     sid = confirmed.student_id
                     try:
-                        if sb.already_checked_in(session["id"], sid):
-                            checked_in.add(sid)
-                            log.info("%s เช็คชื่อไปแล้วก่อนหน้านี้", confirmed.name)
+                        ok_enc, jpg = cv2.imencode(
+                            ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                        # ไม่ต้องถามก่อนว่าเช็คชื่อไปแล้วหรือยัง — RPC กันซ้ำให้
+                        # ด้วย UNIQUE (session_id, student_id) และคืน already
+                        # มาแทนการ error ประหยัดไปหนึ่ง round trip ต่อคน
+                        result = sb.submit_check_in(
+                            session["id"], sid, jpg.tobytes(),
+                            confirmed.confidence,
+                        )
+                        checked_in.add(sid)
+                        # สถานะที่แสดงคือค่าที่ "เซิร์ฟเวอร์บันทึกจริง"
+                        # ไม่ใช่ค่าที่อุปกรณ์คำนวณเอง (นาฬิกา Pi เชื่อไม่ได้)
+                        status = result["status"]
+                        label = "ตรงเวลา" if status == "on_time" else "มาสาย"
+                        if result.get("already"):
+                            banner_text = f"{confirmed.name}  เช็คชื่อไปแล้ว [{label}]"
+                            banner_color = (160, 160, 160)
+                            log.info("%s เช็คชื่อไปแล้วก่อนหน้านี้ (%s)",
+                                     confirmed.name, label)
                         else:
-                            ok_enc, jpg = cv2.imencode(
-                                ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                            status = sb.submit_check_in(
-                                session["id"], sid, jpg.tobytes(),
-                                confirmed.confidence,
-                                session["started_at"],
-                                session.get("late_after_minutes", 15),
-                            )
-                            checked_in.add(sid)
-                            label = "ตรงเวลา" if status == "on_time" else "มาสาย"
                             banner_text = f"{confirmed.name}  {confirmed.confidence*100:.1f}%  [{label}]"
                             banner_color = (80, 200, 90) if status == "on_time" else (60, 180, 240)
-                            banner_until = now + BANNER_SECONDS
-                            cooldown_until = now + COOLDOWN_SECONDS
                             log.info("เช็คชื่อสำเร็จ: %s (%s)", confirmed.name, label)
-                    except Exception as e:  # noqa: BLE001
-                        log.error("บันทึกการเข้าเรียนไม่สำเร็จ: %s", e)
+                        banner_until = now + BANNER_SECONDS
+                        cooldown_until = now + COOLDOWN_SECONDS
+                    except sb.CheckInRejected as e:
+                        # เซิร์ฟเวอร์ปฏิเสธด้วยเหตุผลถาวร ส่งซ้ำไม่ช่วย
+                        # จำไว้ว่าเคยลองแล้ว เพื่อไม่ยิงซ้ำทุกเฟรม
+                        checked_in.add(sid)
+                        msg = sb.REJECT_MESSAGES.get(e.reason, e.reason)
+                        banner_text = f"{confirmed.name}  {msg}"
+                        banner_color = (60, 60, 220)
+                        banner_until = now + BANNER_SECONDS
+                        cooldown_until = now + COOLDOWN_SECONDS
+                        log.warning("ไม่บันทึก %s: %s", confirmed.name, msg)
+                        sb.push_log("WARN", f"ไม่บันทึก {confirmed.name}: {msg}")
+                    except (httpx.HTTPError, OSError) as e:
+                        # เน็ตหรือเซิร์ฟเวอร์มีปัญหา — ยังไม่ใส่ใน checked_in
+                        # เพื่อให้ลองใหม่ได้เมื่อเจอหน้าคนเดิมอีกครั้ง
+                        log.error("บันทึกการเข้าเรียนไม่สำเร็จ (เครือข่าย): %s", e)
+                        banner_text = "เครือข่ายมีปัญหา กรุณาลองใหม่"
+                        banner_color = (60, 60, 220)
+                        banner_until = now + BANNER_SECONDS
+                    except (KeyError, ValueError, RuntimeError) as e:
+                        # เซิร์ฟเวอร์ตอบกลับไม่ตรงรูปแบบที่ตกลงกันไว้
+                        log.error("บันทึกการเข้าเรียนไม่สำเร็จ (ข้อมูลตอบกลับ): %s", e)
                         banner_text = "บันทึกไม่สำเร็จ กรุณาลองใหม่"
                         banner_color = (60, 60, 220)
                         banner_until = now + BANNER_SECONDS
