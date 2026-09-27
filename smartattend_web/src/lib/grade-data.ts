@@ -93,29 +93,91 @@ export async function publishFinalGrades(courseId: string) {
   return supabase.rpc('publish_final_grades', { _course_id: courseId });
 }
 
+/** คะแนนเต็มของหัวข้อ — ใช้ 100 เฉพาะเมื่อค่าใช้ไม่ได้จริง (ว่าง/ติดลบ/ไม่ใช่ตัวเลข)
+ *  ห้ามใช้ `Number(x) || 100` เพราะคะแนนเต็ม 0 จะถูกเปลี่ยนเป็น 100 เงียบ ๆ */
+export function maxScoreOf(item: Pick<GradeItem, 'max_score'>): number {
+  const n = Number(item.max_score);
+  return Number.isFinite(n) && n > 0 ? n : 100;
+}
+
+export interface WeightedResult {
+  /** คะแนนที่ได้ เทียบกับ 100 คะแนนเต็มของวิชา — หัวข้อที่ยังไม่ตรวจนับเป็น 0 */
+  total: number;
+  /** ผลรวมน้ำหนัก (%) ของหัวข้อที่มีคะแนนแล้ว */
+  usedWeight: number;
+  /** ผลรวมน้ำหนัก (%) ของหัวข้อทั้งหมดที่อาจารย์ตั้งไว้ */
+  declaredWeight: number;
+  /**
+   * เปอร์เซ็นต์ "เฉพาะส่วนที่ตรวจแล้ว" = total ÷ usedWeight × 100
+   * นี่คือตัวเลขที่ใช้เทียบเกรด ถ้าเอา total ไปเทียบตรง ๆ ทั้งห้องจะได้ F
+   * ตอนต้นเทอมเพราะน้ำหนักที่เหลือยังไม่ถูกตรวจ  null = ยังไม่มีคะแนนเลย
+   */
+  percentOfGraded: number | null;
+  /** true เมื่อทุกหัวข้อที่มีน้ำหนักถูกตรวจครบแล้ว (เกรดนิ่งแล้ว) */
+  complete: boolean;
+}
+
 /**
- * Weighted total (0-100) for one student across the course grade items.
+ * Weighted total for one student across the course grade items.
  * Items with weight 0 are ignored so partial setups don't distort the total.
  */
-export function weightedTotal(items: GradeItem[], scoreOf: (itemId: string) => number | null): {
-  total: number; usedWeight: number;
-} {
+export function weightedTotal(
+  items: GradeItem[], scoreOf: (itemId: string) => number | null,
+): WeightedResult {
   let total = 0;
   let usedWeight = 0;
+  let declaredWeight = 0;
   for (const it of items) {
     const w = Number(it.weight) || 0;
     if (w <= 0) continue;
+    declaredWeight += w;
     const s = scoreOf(it.id);
     if (s == null) continue;
-    const max = Number(it.max_score) || 100;
+    const max = maxScoreOf(it);
     total += (s / max) * w;
     usedWeight += w;
   }
-  return { total: Math.round(total * 100) / 100, usedWeight };
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  return {
+    total: round2(total),
+    usedWeight: round2(usedWeight),
+    declaredWeight: round2(declaredWeight),
+    percentOfGraded: usedWeight > 0 ? round2((total / usedWeight) * 100) : null,
+    complete: declaredWeight > 0 && usedWeight >= declaredWeight - 0.01,
+  };
 }
 
 /** Auto attendance score (0..max) derived from the attendance summary view. */
 export function attendanceScore(rate: number | null, maxScore: number): number {
   const r = Math.max(0, Math.min(100, Number(rate ?? 0)));
   return Math.round((r / 100) * maxScore * 100) / 100;
+}
+
+/** สร้าง/แก้ไขหัวข้อคะแนน ผ่าน RPC ที่ตรวจสิทธิ์และบันทึก audit log ให้
+ *  ส่ง itemId มาด้วย = แก้ไขหัวข้อเดิม, ไม่ส่ง = สร้างใหม่ */
+export async function saveGradeItem(params: {
+  courseId: string;
+  itemId?: string | null;
+  name: string;
+  category: GradeCategory;
+  maxScore: number;
+  weight: number;
+}) {
+  return supabase.rpc('save_grade_item', {
+    _course_id: params.courseId,
+    _item_id: params.itemId ?? undefined,
+    _name: params.name,
+    _category: params.category,
+    _max_score: params.maxScore,
+    _weight: params.weight,
+  });
+}
+
+/** ลบหัวข้อคะแนน ผ่าน RPC ที่ตรวจสิทธิ์และบันทึก audit log
+ *  คืนจำนวนคะแนนนักศึกษาที่ถูกลบไปพร้อมกัน */
+export async function deleteGradeItem(itemId: string, reason?: string | null) {
+  return supabase.rpc('delete_grade_item', {
+    _item_id: itemId,
+    _reason: reason ?? undefined,
+  });
 }

@@ -1087,6 +1087,21 @@ export type Database = {
         Returns: undefined
       }
       publish_final_grades: { Args: { _course_id: string }; Returns: undefined }
+      save_grade_item: {
+        Args: {
+          _course_id: string
+          _name: string
+          _category: string
+          _max_score: number
+          _weight: number
+          _item_id?: string
+        }
+        Returns: string
+      }
+      delete_grade_item: {
+        Args: { _item_id: string; _reason?: string }
+        Returns: number
+      }
       save_grade_structure: {
         Args: { _course_id: string; _components: Json }
         Returns: undefined

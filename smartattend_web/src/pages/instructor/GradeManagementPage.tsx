@@ -3,16 +3,16 @@ import { useAuth } from '@/lib/auth-context';
 import { logAudit } from '@/lib/audit-log';
 import { fetchInstructorCourses, fetchSummary, type SummaryRow } from '@/lib/attendance-data';
 import {
-  attendanceScore, categoryLabels, fetchGradeItems, fetchStudentGrades, gradeColor,
-  letterGrade, publishFinalGrades, upsertGrade, weightedTotal,
-  type GradeCategory, type GradeItem, type StudentGrade,
+  attendanceScore, categoryLabels, deleteGradeItem, fetchGradeItems, fetchStudentGrades,
+  gradeColor, letterGrade, maxScoreOf, publishFinalGrades, saveGradeItem, upsertGrade,
+  weightedTotal, type GradeCategory, type GradeItem, type StudentGrade,
 } from '@/lib/grade-data';
 import { supabase } from '@/integrations/supabase/client';
 import * as XLSX from 'xlsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { Plus, Trash2, Sparkles, Loader2, Save, Megaphone, Download, Upload } from 'lucide-react';
+import { Plus, Pencil, Trash2, Sparkles, Loader2, Save, Megaphone, Download, Upload, X } from 'lucide-react';
 
 interface Course { id: string; code: string; name: string }
 interface Student { id: string; name: string; code: string }
@@ -39,6 +39,8 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [showNew, setShowNew] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null); // null = สร้างใหม่
+  const [savingItem, setSavingItem] = useState(false);
   const [newName, setNewName] = useState('');
   const [newCat, setNewCat] = useState<GradeCategory>('assignment');
   const [newMax, setNewMax] = useState('100');
@@ -90,25 +92,92 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
 
   useEffect(() => { load(); }, [load]);
 
-  const addItem = async () => {
-    if (!newName.trim()) { toast.error('กรุณาระบุชื่อหัวข้อคะแนน'); return; }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase as any).from('grade_items').insert({
-      course_id: courseId, name: newName.trim(), category: newCat,
-      max_score: Number(newMax) || 100, weight: Number(newWeight) || 0,
+  /** จำนวนคะแนนที่บันทึกไว้แล้วในหัวข้อหนึ่ง — ใช้เตือนก่อนลบ/ก่อนลดคะแนนเต็ม */
+  const savedScoreCount = (itemId: string) =>
+    students.filter(s => initialGrades[`${itemId}:${s.id}`] != null).length;
+
+  const closeItemForm = () => {
+    setShowNew(false); setEditingId(null);
+    setNewName(''); setNewCat('assignment'); setNewMax('100'); setNewWeight('10');
+  };
+
+  const openNewItem = () => {
+    if (showNew && !editingId) { closeItemForm(); return; }
+    setEditingId(null);
+    setNewName(''); setNewCat('assignment'); setNewMax('100'); setNewWeight('10');
+    setShowNew(true);
+  };
+
+  const openEditItem = (it: GradeItem) => {
+    setEditingId(it.id);
+    setNewName(it.name);
+    setNewCat(it.category);
+    setNewMax(String(it.max_score));
+    setNewWeight(String(it.weight));
+    setShowNew(true);
+  };
+
+  const ITEM_ERRORS: Record<string, string> = {
+    name_required: 'กรุณาระบุชื่อหัวข้อคะแนน',
+    invalid_max_score: 'คะแนนเต็มต้องมากกว่า 0',
+    invalid_weight: 'น้ำหนักต้องอยู่ระหว่าง 0 - 100%',
+    invalid_category: 'ประเภทคะแนนไม่ถูกต้อง',
+    grade_item_not_found: 'ไม่พบหัวข้อคะแนนนี้ (อาจถูกลบไปแล้ว)',
+    forbidden: 'ไม่มีสิทธิ์แก้ไขคะแนนของรายวิชานี้',
+  };
+
+  /** บันทึกหัวข้อคะแนน — สร้างใหม่ถ้า editingId เป็น null ไม่งั้นแก้ไขหัวข้อเดิม
+   *  ผ่าน RPC ที่ตรวจสิทธิ์และลง audit log ให้ (เดิม insert ลงตารางตรง ๆ) */
+  const saveItem = async () => {
+    const name = newName.trim();
+    const max = Number(newMax);
+    const weight = Number(newWeight);
+    if (!name) { toast.error('กรุณาระบุชื่อหัวข้อคะแนน'); return; }
+    if (!Number.isFinite(max) || max <= 0) { toast.error('คะแนนเต็มต้องมากกว่า 0'); return; }
+    if (!Number.isFinite(weight) || weight < 0 || weight > 100) {
+      toast.error('น้ำหนักต้องอยู่ระหว่าง 0 - 100%'); return;
+    }
+
+    // ลดคะแนนเต็มลง = คะแนนที่บันทึกไว้เกินเต็มใหม่จะถูกปรับลงมา บอกก่อนเสมอ
+    if (editingId) {
+      const before = items.find(i => i.id === editingId);
+      const over = before && max < maxScoreOf(before)
+        ? students.filter(s => {
+            const v = initialGrades[`${editingId}:${s.id}`];
+            return v != null && v > max;
+          }).length
+        : 0;
+      if (over > 0 && !window.confirm(
+        `ลดคะแนนเต็มจาก ${before?.max_score} เป็น ${max} จะทำให้คะแนนของนักศึกษา ${over} คนที่เกินเต็มใหม่ถูกปรับลงมาเป็น ${max} (บันทึกไว้ใน audit log) ยืนยันหรือไม่?`,
+      )) return;
+    }
+
+    setSavingItem(true);
+    const { error } = await saveGradeItem({
+      courseId, itemId: editingId, name, category: newCat, maxScore: max, weight,
     });
-    if (error) { console.error(error); toast.error('สร้างหัวข้อคะแนนไม่สำเร็จ'); return; }
-    toast.success('เพิ่มหัวข้อคะแนนแล้ว');
-    setNewName(''); setShowNew(false);
+    setSavingItem(false);
+    if (error) {
+      console.error(error);
+      const key = Object.keys(ITEM_ERRORS).find(k => error.message?.includes(k));
+      toast.error(key ? ITEM_ERRORS[key] : 'บันทึกหัวข้อคะแนนไม่สำเร็จ');
+      return;
+    }
+    toast.success(editingId ? 'แก้ไขหัวข้อคะแนนแล้ว' : 'เพิ่มหัวข้อคะแนนแล้ว');
+    closeItemForm();
     load();
   };
 
-  const removeItem = async (id: string) => {
-    if (!window.confirm('ลบหัวข้อคะแนนนี้และคะแนนทั้งหมดในหัวข้อ?')) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase as any).from('grade_items').delete().eq('id', id);
-    if (error) { toast.error('ลบไม่สำเร็จ'); return; }
-    toast.success('ลบแล้ว');
+  const removeItem = async (it: GradeItem) => {
+    const n = savedScoreCount(it.id);
+    const warn = n > 0
+      ? `ลบหัวข้อ "${it.name}" จะลบคะแนนของนักศึกษา ${n} คนในหัวข้อนี้ทิ้งไปด้วย และกู้คืนไม่ได้\n\nถ้าเพียงต้องการแก้ชื่อ คะแนนเต็ม หรือน้ำหนัก ให้กดปุ่มแก้ไข (ดินสอ) แทน — คะแนนจะไม่หาย\n\nยืนยันการลบ?`
+      : `ลบหัวข้อ "${it.name}"?`;
+    if (!window.confirm(warn)) return;
+    const { data, error } = await deleteGradeItem(it.id);
+    if (error) { console.error(error); toast.error('ลบไม่สำเร็จ'); return; }
+    toast.success(Number(data) > 0 ? `ลบหัวข้อและคะแนน ${data} รายการแล้ว` : 'ลบหัวข้อคะแนนแล้ว');
+    if (editingId === it.id) closeItemForm();
     load();
   };
 
@@ -134,6 +203,25 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
       }
     }
     if (changes.length === 0) { toast.error('ยังไม่มีการเปลี่ยนแปลง'); return; }
+
+    // คะแนนเกินเต็มหรือติดลบ: บอกให้แก้ก่อน ไม่ส่งไปให้ฐานข้อมูล clamp เงียบ ๆ
+    // (ฐานข้อมูลยัง clamp อยู่เป็นด่านสุดท้าย เผื่อมีการยิง REST เข้ามาตรง ๆ)
+    const bad = changes.filter(c => {
+      if (c.value == null) return false;
+      const it = items.find(i => i.id === c.itemId);
+      return !it || c.value < 0 || c.value > maxScoreOf(it);
+    });
+    if (bad.length > 0) {
+      const first = bad[0];
+      const it = items.find(i => i.id === first.itemId);
+      const st = students.find(s => s.id === first.studentId);
+      toast.error(
+        `คะแนนต้องอยู่ระหว่าง 0 - ${it ? maxScoreOf(it) : '?'} — ตรวจสอบ ${st?.name ?? 'นักศึกษา'} หัวข้อ "${it?.name ?? '?'}"`
+        + (bad.length > 1 ? ` และอีก ${bad.length - 1} ช่อง` : ''),
+      );
+      return;
+    }
+
     if (hasCorrection && !reason.trim()) {
       toast.error('มีการแก้ไขคะแนนที่เคยบันทึกไว้แล้ว กรุณาระบุเหตุผลก่อนบันทึก');
       return;
@@ -218,7 +306,7 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
       for (const s of students) {
         const row = summary.find(r => r.student_id === s.id && r.course_id === courseId);
         if (!row) continue;
-        next[`${it.id}:${s.id}`] = attendanceScore(row.attendance_rate, Number(it.max_score) || 100);
+        next[`${it.id}:${s.id}`] = attendanceScore(row.attendance_rate, maxScoreOf(it));
         n++;
       }
     }
@@ -251,7 +339,7 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
             <div className="bg-card rounded-2xl p-4 shadow-card space-y-2">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold text-foreground">หัวข้อคะแนน · น้ำหนักรวม {totalWeight}%</p>
-                <button onClick={() => setShowNew(v => !v)} className="inline-flex items-center gap-1 text-[11px] text-primary font-medium">
+                <button onClick={openNewItem} className="inline-flex items-center gap-1 text-[11px] text-primary font-medium">
                   <Plus className="w-3.5 h-3.5" /> เพิ่ม
                 </button>
               </div>
@@ -260,7 +348,9 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
               )}
 
               {items.map(it => (
-                <div key={it.id} className="flex items-center gap-2 py-1.5 border-t border-border first:border-0">
+                <div key={it.id} className={`flex items-center gap-2 py-1.5 border-t border-border first:border-0 ${
+                  editingId === it.id ? 'bg-primary/5 -mx-1 px-1 rounded-lg' : ''
+                }`}>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-foreground truncate">{it.name}</p>
                     <p className="text-[10px] text-muted-foreground">
@@ -268,13 +358,28 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
                       {it.category === 'final' && !published && ' · นักศึกษายังไม่เห็นจนกว่าจะประกาศผล'}
                     </p>
                   </div>
-                  <button onClick={() => removeItem(it.id)}><Trash2 className="w-3.5 h-3.5 text-destructive" /></button>
+                  <button onClick={() => openEditItem(it)} title="แก้ไขหัวข้อคะแนน"
+                    className="p-1 rounded-lg hover:bg-muted">
+                    <Pencil className="w-3.5 h-3.5 text-primary" />
+                  </button>
+                  <button onClick={() => removeItem(it)} title="ลบหัวข้อคะแนน"
+                    className="p-1 rounded-lg hover:bg-muted">
+                    <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                  </button>
                 </div>
               ))}
               {items.length === 0 && <p className="text-[11px] text-muted-foreground">ยังไม่มีหัวข้อคะแนน</p>}
 
               {showNew && (
                 <div className="pt-2 space-y-2 border-t border-border">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] font-semibold text-foreground">
+                      {editingId ? 'แก้ไขหัวข้อคะแนน' : 'หัวข้อคะแนนใหม่'}
+                    </p>
+                    <button onClick={closeItemForm} className="p-1 rounded-lg hover:bg-muted" title="ยกเลิก">
+                      <X className="w-3.5 h-3.5 text-muted-foreground" />
+                    </button>
+                  </div>
                   <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="ชื่อหัวข้อ เช่น สอบกลางภาค"
                     className="w-full px-3 py-2 rounded-xl bg-muted text-xs text-foreground outline-none" />
                   <div className="grid grid-cols-3 gap-2">
@@ -282,13 +387,20 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
                       className="px-2 py-2 rounded-xl bg-muted text-xs text-foreground outline-none">
                       {CATEGORIES.map(c => <option key={c} value={c}>{categoryLabels[c]}</option>)}
                     </select>
-                    <input value={newMax} onChange={e => setNewMax(e.target.value)} type="number" placeholder="เต็ม"
+                    <input value={newMax} onChange={e => setNewMax(e.target.value)} type="number" min={1} placeholder="เต็ม"
                       className="px-2 py-2 rounded-xl bg-muted text-xs text-foreground outline-none" />
-                    <input value={newWeight} onChange={e => setNewWeight(e.target.value)} type="number" placeholder="น้ำหนัก %"
+                    <input value={newWeight} onChange={e => setNewWeight(e.target.value)} type="number" min={0} max={100} placeholder="น้ำหนัก %"
                       className="px-2 py-2 rounded-xl bg-muted text-xs text-foreground outline-none" />
                   </div>
-                  <button onClick={addItem} className="w-full py-2 rounded-xl gradient-primary text-primary-foreground text-xs font-semibold">
-                    สร้างหัวข้อคะแนน
+                  {editingId && savedScoreCount(editingId) > 0 && (
+                    <p className="text-[10px] text-muted-foreground">
+                      หัวข้อนี้มีคะแนนบันทึกไว้แล้ว {savedScoreCount(editingId)} คน — แก้ชื่อ/น้ำหนักได้โดยคะแนนไม่หาย
+                    </p>
+                  )}
+                  <button onClick={saveItem} disabled={savingItem}
+                    className="w-full inline-flex items-center justify-center gap-1.5 py-2 rounded-xl gradient-primary text-primary-foreground text-xs font-semibold disabled:opacity-50">
+                    {savingItem && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    {editingId ? 'บันทึกการแก้ไข' : 'สร้างหัวข้อคะแนน'}
                   </button>
                 </div>
               )}
@@ -347,14 +459,20 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
                           {it.name}<br /><span className="text-[9px] font-normal">/{it.max_score}</span>
                         </th>
                       ))}
-                      <th className="p-2.5 font-medium text-muted-foreground">รวม</th>
-                      <th className="p-2.5 font-medium text-muted-foreground">เกรด</th>
+                      <th className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
+                        รวม<br /><span className="text-[9px] font-normal">/{items.reduce((a, i) => a + (Number(i.weight) || 0), 0)}</span>
+                      </th>
+                      <th className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
+                        เกรด<br /><span className="text-[9px] font-normal">จากที่ตรวจแล้ว</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {students.map((s, i) => {
-                      const { total } = weightedTotal(items, id => grades[`${id}:${s.id}`] ?? null);
-                      const g = letterGrade(total);
+                      // เทียบเกรดจาก "เปอร์เซ็นต์ของส่วนที่ตรวจแล้ว" ไม่ใช่จาก total
+                      // เพราะ total นับหัวข้อที่ยังไม่ตรวจเป็น 0 ต้นเทอมจะ F ทั้งห้อง
+                      const w = weightedTotal(items, id => grades[`${id}:${s.id}`] ?? null);
+                      const g = w.percentOfGraded == null ? null : letterGrade(w.percentOfGraded);
                       return (
                         <motion.tr key={s.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
                           className="border-b border-border last:border-0">
@@ -372,13 +490,26 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
                               />
                             </td>
                           ))}
-                          <td className="p-2.5 text-center font-semibold text-foreground">{total.toFixed(1)}</td>
-                          <td className={`p-2.5 text-center font-bold ${gradeColor(g)}`}>{g}</td>
+                          <td className="p-2.5 text-center font-semibold text-foreground whitespace-nowrap">
+                            {w.total.toFixed(1)}
+                            {!w.complete && (
+                              <span className="block text-[9px] font-normal text-muted-foreground">
+                                ตรวจแล้ว {w.usedWeight}%
+                              </span>
+                            )}
+                          </td>
+                          <td className={`p-2.5 text-center font-bold whitespace-nowrap ${g ? gradeColor(g) : 'text-muted-foreground'}`}>
+                            {g == null ? '—' : (w.complete ? g : `${g}*`)}
+                          </td>
                         </motion.tr>
                       );
                     })}
                   </tbody>
                 </table>
+                <p className="px-3 pb-3 pt-1 text-[10px] text-muted-foreground leading-relaxed">
+                  ช่อง "รวม" คือคะแนนที่ได้จากน้ำหนักทั้งหมด {totalWeight}% ของรายวิชา ·
+                  เกรดคิดจากเปอร์เซ็นต์ของหัวข้อที่ตรวจแล้วเท่านั้น เครื่องหมาย * = ยังตรวจไม่ครบทุกหัวข้อ เกรดยังเปลี่ยนได้
+                </p>
               </div>
             )}
           </>
