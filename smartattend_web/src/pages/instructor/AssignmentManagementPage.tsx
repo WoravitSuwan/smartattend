@@ -14,10 +14,13 @@ import { toast } from 'sonner';
 
 interface Course { id: string; code: string; name: string }
 
-const AssignmentManagementPage = () => {
+/** หน้าจัดการงาน — ถ้าส่ง embeddedCourseId มา จะทำงานเป็นส่วนหนึ่งของหน้า
+ *  รายละเอียดรายวิชา (ล็อกวิชาไว้ ไม่ต้องมีแถบเลือกวิชา และไม่ครอบ layout ซ้ำ) */
+const AssignmentManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string } = {}) => {
   const { user } = useAuth();
+  const embedded = !!embeddedCourseId;
   const [courses, setCourses] = useState<Course[]>([]);
-  const [selectedCourse, setSelectedCourse] = useState('');
+  const [selectedCourse, setSelectedCourse] = useState(embeddedCourseId ?? '');
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -28,13 +31,17 @@ const AssignmentManagementPage = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || embedded) return;
     fetchInstructorCourses(user.id).then((cs) => {
       setCourses(cs as Course[]);
       setSelectedCourse(prev => prev || (cs as Course[])[0]?.id || '');
       if (cs.length === 0) setLoading(false);
     });
-  }, [user]);
+  }, [user, embedded]);
+
+  useEffect(() => {
+    if (embeddedCourseId) setSelectedCourse(embeddedCourseId);
+  }, [embeddedCourseId]);
 
   const load = useCallback(async () => {
     if (!selectedCourse) return;
@@ -116,19 +123,20 @@ const AssignmentManagementPage = () => {
     load();
   };
 
-  return (
-    <MobileLayout title="จัดการงาน">
-      <div className="px-4 py-4 space-y-4">
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-          {courses.map(c => (
-            <button key={c.id} onClick={() => setSelectedCourse(c.id)}
-              className={`whitespace-nowrap px-4 py-2 rounded-xl text-xs font-medium transition-all ${
-                selectedCourse === c.id ? 'gradient-primary text-primary-foreground shadow-elevated' : 'bg-card text-muted-foreground shadow-card'
-              }`}>{c.code}</button>
-          ))}
-        </div>
+  const body = (
+      <div className={embedded ? 'space-y-4' : 'px-4 py-4 space-y-4'}>
+        {!embedded && (
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+            {courses.map(c => (
+              <button key={c.id} onClick={() => setSelectedCourse(c.id)}
+                className={`whitespace-nowrap px-4 py-2 rounded-xl text-xs font-medium transition-all ${
+                  selectedCourse === c.id ? 'gradient-primary text-primary-foreground shadow-elevated' : 'bg-card text-muted-foreground shadow-card'
+                }`}>{c.code}</button>
+            ))}
+          </div>
+        )}
 
-        {courses.length === 0 && !loading && (
+        {!embedded && courses.length === 0 && !loading && (
           <div className="text-center py-12 text-muted-foreground text-sm">ยังไม่มีรายวิชาที่สอน</div>
         )}
 
@@ -221,8 +229,10 @@ const AssignmentManagementPage = () => {
           </motion.div>
         ))}
       </div>
-    </MobileLayout>
   );
+
+  if (embedded) return body;
+  return <MobileLayout title="จัดการงาน">{body}</MobileLayout>;
 };
 
 export default AssignmentManagementPage;

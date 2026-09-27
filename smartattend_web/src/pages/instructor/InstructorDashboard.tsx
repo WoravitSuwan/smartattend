@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { BookOpen, Users, TrendingUp, AlertTriangle, ClipboardList, GraduationCap, FileText, PlusCircle, CalendarOff, ScanFace, Radio, PlayCircle, Upload, Download } from 'lucide-react';
+import { BookOpen, Users, AlertTriangle, ClipboardList, GraduationCap, FileText, PlusCircle, CalendarOff, ScanFace, Radio, Upload, Download } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import MobileLayout from '@/components/MobileLayout';
 import { useNavigate } from 'react-router-dom';
@@ -22,7 +22,6 @@ const InstructorDashboard = () => {
   const [courses, setCourses] = useState<CourseItem[]>([]);
   const [totalStudents, setTotalStudents] = useState(0);
   const [openSessions, setOpenSessions] = useState<OpenSession[]>([]);
-  const [courseRates, setCourseRates] = useState<{ code: string; rate: number }[]>([]);
   const [atRisk, setAtRisk] = useState<AtRisk[]>([]);
 
   const load = useCallback(async () => {
@@ -63,14 +62,6 @@ const InstructorDashboard = () => {
 
     const summaries: SummaryRow[] = [];
     for (const id of ids) summaries.push(...await fetchSummary({ courseId: id }));
-
-    const byCourse = new Map<string, { sum: number; n: number }>();
-    summaries.forEach(s => {
-      const agg = byCourse.get(s.course_code) ?? { sum: 0, n: 0 };
-      agg.sum += Number(s.attendance_rate ?? 0); agg.n += 1;
-      byCourse.set(s.course_code, agg);
-    });
-    setCourseRates(Array.from(byCourse, ([code, a]) => ({ code, rate: Math.round(a.sum / a.n) })));
 
     const risky = summaries.filter(s => Number(s.attendance_rate ?? 100) < 80);
     if (risky.length) {
@@ -133,22 +124,6 @@ const InstructorDashboard = () => {
           </div>
         )}
 
-        {courseRates.length > 0 && (
-          <div>
-            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1">
-              <TrendingUp className="w-3 h-3" /> อัตราการเข้าเรียนเฉลี่ย
-            </h2>
-            <div className="space-y-2">
-              {courseRates.map(c => (
-                <div key={c.code} className="bg-card rounded-xl p-3 flex items-center justify-between shadow-card">
-                  <p className="text-sm font-medium text-foreground">{c.code}</p>
-                  <p className="text-sm font-bold text-primary">{c.rate}%</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         <div>
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1">
             <AlertTriangle className="w-3 h-3 text-warning" /> นักศึกษากลุ่มเสี่ยง (ต่ำกว่า 80%)
@@ -172,9 +147,9 @@ const InstructorDashboard = () => {
 
         {[
           {
-            group: 'การเรียนการสอน',
+            group: 'รายวิชา',
             items: [
-              { label: 'เปิดคลาส', icon: PlayCircle, path: '/instructor/class-test' },
+              { label: 'เปิดคลาส · งาน · คะแนน', icon: BookOpen, path: '/instructor/courses' },
               { label: 'เช็คชื่อ', icon: ClipboardList, path: '/instructor/attendance' },
               { label: 'รายชื่อในวิชา', icon: Users, path: '/instructor/roster' },
               { label: 'Import รายชื่อ', icon: Upload, path: '/instructor/import-roster' },
@@ -183,8 +158,8 @@ const InstructorDashboard = () => {
           {
             group: 'งานและคะแนน',
             items: [
-              { label: 'สร้างงาน', icon: PlusCircle, path: '/instructor/assignments' },
-              { label: 'คะแนนรวมทั้งหมด', icon: GraduationCap, path: '/instructor/grades' },
+              { label: 'ตรวจงาน', icon: PlusCircle, path: '/instructor/grading' },
+              { label: 'คะแนนรวมทุกวิชา', icon: GraduationCap, path: '/instructor/grades' },
               { label: 'Export คะแนน', icon: Download, path: '/instructor/export' },
             ],
           },

@@ -19,10 +19,13 @@ interface Student { id: string; name: string; code: string }
 
 const CATEGORIES = Object.keys(categoryLabels) as GradeCategory[];
 
-const GradeManagementPage = () => {
+/** หน้าคะแนนรวม — ถ้าส่ง embeddedCourseId มา จะทำงานเป็นส่วนหนึ่งของหน้า
+ *  รายละเอียดรายวิชา (ล็อกวิชาไว้ ไม่ต้องมีแถบเลือกวิชา และไม่ครอบ layout ซ้ำ) */
+const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string } = {}) => {
   const { user } = useAuth();
+  const embedded = !!embeddedCourseId;
   const [courses, setCourses] = useState<Course[]>([]);
-  const [courseId, setCourseId] = useState('');
+  const [courseId, setCourseId] = useState(embeddedCourseId ?? '');
   const [items, setItems] = useState<GradeItem[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [grades, setGrades] = useState<Record<string, number | null>>({}); // `${itemId}:${studentId}`
@@ -42,13 +45,17 @@ const GradeManagementPage = () => {
   const [newWeight, setNewWeight] = useState('10');
 
   useEffect(() => {
-    if (!user) return;
+    if (embeddedCourseId) setCourseId(embeddedCourseId);
+  }, [embeddedCourseId]);
+
+  useEffect(() => {
+    if (!user || embedded) return;
     fetchInstructorCourses(user.id).then(cs => {
       setCourses(cs as Course[]);
       if (cs.length > 0) setCourseId(cs[0].id);
       else setLoading(false);
     });
-  }, [user]);
+  }, [user, embedded]);
 
   const load = useCallback(async () => {
     if (!courseId) return;
@@ -221,19 +228,20 @@ const GradeManagementPage = () => {
 
   const totalWeight = useMemo(() => items.reduce((a, i) => a + (Number(i.weight) || 0), 0), [items]);
 
-  return (
-    <MobileLayout title="คะแนนรวมทั้งหมด">
-      <div className="px-4 py-4 space-y-4">
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-          {courses.map(c => (
-            <button key={c.id} onClick={() => setCourseId(c.id)}
-              className={`whitespace-nowrap px-4 py-2 rounded-xl text-xs font-medium transition-all ${
-                courseId === c.id ? 'gradient-primary text-primary-foreground shadow-elevated' : 'bg-card text-muted-foreground shadow-card'
-              }`}>{c.code}</button>
-          ))}
-        </div>
+  const body = (
+      <div className={embedded ? 'space-y-4' : 'px-4 py-4 space-y-4'}>
+        {!embedded && (
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+            {courses.map(c => (
+              <button key={c.id} onClick={() => setCourseId(c.id)}
+                className={`whitespace-nowrap px-4 py-2 rounded-xl text-xs font-medium transition-all ${
+                  courseId === c.id ? 'gradient-primary text-primary-foreground shadow-elevated' : 'bg-card text-muted-foreground shadow-card'
+                }`}>{c.code}</button>
+            ))}
+          </div>
+        )}
 
-        {courses.length === 0 && !loading && (
+        {!embedded && courses.length === 0 && !loading && (
           <div className="text-center py-12 text-muted-foreground text-sm">ยังไม่มีรายวิชา</div>
         )}
 
@@ -376,8 +384,10 @@ const GradeManagementPage = () => {
           </>
         )}
       </div>
-    </MobileLayout>
   );
+
+  if (embedded) return body;
+  return <MobileLayout title="คะแนนรวมทั้งหมด">{body}</MobileLayout>;
 };
 
 export default GradeManagementPage;
