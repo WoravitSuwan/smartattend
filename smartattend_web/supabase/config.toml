@@ -9,9 +9,6 @@ verify_jwt = true
 [functions.admin-review-role-request]
 verify_jwt = true
 
-[functions.seed-demo-users]
-verify_jwt = false
-
 [functions.parse-schedule-image]
 verify_jwt = false
 
