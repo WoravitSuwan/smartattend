@@ -202,3 +202,32 @@ export function itemWeightsComplete(items: Pick<StructureItem, 'weight_in_compon
   const total = items.reduce((a, i) => a + (Number(i.weight_in_component) || 0), 0);
   return Math.abs(total - 100) < 0.005;
 }
+
+/**
+ * ตรวจช่องที่กรอกผิดทั้งแผ่น คืน map ของ `${itemId}:${studentId}` -> ข้อความ
+ * ใช้กฎชุดเดียวกับ validateScore() และกับที่ RPC ตรวจซ้ำอีกชั้น
+ */
+export function findBadCells(
+  items: Pick<StructureItem, 'id' | 'max_score'>[],
+  students: { id: string }[],
+  grades: Record<string, number | null>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const it of items) {
+    for (const s of students) {
+      const key = `${it.id}:${s.id}`;
+      const v = grades[key];
+      if (v == null) continue;
+      if (!Number.isFinite(v)) { out[key] = 'ไม่ใช่ตัวเลข'; continue; }
+      const max = Number(it.max_score);
+      if (!Number.isFinite(max) || max <= 0) {
+        out[key] = 'หัวข้อนี้ยังตั้งคะแนนเต็มไม่ถูกต้อง';
+      } else if (v < 0) {
+        out[key] = 'ติดลบไม่ได้';
+      } else if (v > max) {
+        out[key] = `เกินคะแนนเต็ม (${max})`;
+      }
+    }
+  }
+  return out;
+}

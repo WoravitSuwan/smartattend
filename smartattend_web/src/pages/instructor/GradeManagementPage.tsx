@@ -19,6 +19,10 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import GradeStructurePanel from '@/components/GradeStructurePanel';
 import { recalcAttendanceScores, type RecalcResult } from '@/lib/attendance-score-data';
 import PublishGradesPanel from '@/components/PublishGradesPanel';
+import GradeSheet from '@/components/GradeSheet';
+import { useUnsavedWarning } from '@/lib/use-unsaved-warning';
+import { fetchComponents, fetchStructureItems } from '@/lib/grade-structure-data';
+import { findBadCells, type GradeComponent, type StructureItem } from '@/lib/grade-structure';
 
 interface Course { id: string; code: string; name: string }
 interface Student { id: string; name: string; code: string }
@@ -33,6 +37,9 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
   const [courses, setCourses] = useState<Course[]>([]);
   const [courseId, setCourseId] = useState(embeddedCourseId ?? '');
   const [items, setItems] = useState<GradeItem[]>([]);
+  /** โครงสร้างสามระดับ — ใช้คิดคะแนนแทน grade_items.weight ที่เลิกใช้แล้ว */
+  const [components, setComponents] = useState<GradeComponent[]>([]);
+  const [structureItems, setStructureItems] = useState<StructureItem[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [grades, setGrades] = useState<Record<string, number | null>>({}); // `${itemId}:${studentId}`
   const [initialGrades, setInitialGrades] = useState<Record<string, number | null>>({});
@@ -105,6 +112,9 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
       .from('courses').select('final_grade_published, grades_locked').eq('id', courseId).maybeSingle();
     setPublished(!!courseRow?.final_grade_published);
     setGradesLocked(!!(courseRow as { grades_locked?: boolean } | null)?.grades_locked);
+
+    setComponents(await fetchComponents(courseId));
+    setStructureItems(await fetchStructureItems(courseId));
 
     const sc = await fetchGradeScale(courseId);
     setScale(sc.scale);
@@ -230,17 +240,20 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
 
   /** ช่องที่กรอกผิดทั้งหมด คีย์เดียวกับ grades
    *  ตรวจทันทีที่พิมพ์ ไม่รอกดบันทึก เพราะอาจารย์ต้องรู้ตรงช่องที่พิมพ์ผิด */
-  const invalidCells = useMemo(() => {
-    const out: Record<string, string> = {};
-    for (const it of items) {
-      for (const st of students) {
-        const key = `${it.id}:${st.id}`;
-        const err = validateScore(it, grades[key]);
-        if (err) out[key] = err;
-      }
+  const invalidCells = useMemo(
+    () => findBadCells(structureItems, students, grades),
+    [structureItems, students, grades]);
+
+  /** จำนวนช่องที่แก้แล้วแต่ยังไม่กดบันทึก — ใช้เตือนก่อนออกจากหน้า (ข้อ 2.4) */
+  const unsavedCount = useMemo(() => {
+    let n = 0;
+    for (const key of Object.keys(grades)) {
+      if (grades[key] !== initialGrades[key]) n++;
     }
-    return out;
-  }, [items, students, grades]);
+    return n;
+  }, [grades, initialGrades]);
+
+  useUnsavedWarning(unsavedCount > 0);
 
   /** ช่องที่ต้องไฮไลต์ = ที่หน้าจอตรวจเจอ + ที่ฐานข้อมูลปฏิเสธ */
   const badCells = useMemo(
@@ -561,7 +574,8 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
             <button onClick={saveAll}
               disabled={saving || items.length === 0 || Object.keys(invalidCells).length > 0}
               className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl gradient-primary text-primary-foreground text-xs font-semibold shadow-elevated disabled:opacity-50">
-              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} บันทึกคะแนน
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              บันทึกคะแนน{unsavedCount > 0 && ` (${unsavedCount} ช่องที่แก้ไว้)`}
             </button>
 
             <PublishGradesPanel
@@ -576,88 +590,24 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
               <div className="text-center py-10 text-muted-foreground text-sm">ยังไม่มีนักศึกษาที่จับคู่บัญชีในรายวิชานี้</div>
             )}
 
-            {/* Score grid */}
-            {students.length > 0 && items.length > 0 && (
-              <div className="bg-card rounded-2xl shadow-card overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left p-2.5 font-medium text-muted-foreground sticky left-0 bg-card">นักศึกษา</th>
-                      {items.map(it => (
-                        <th key={it.id} className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
-                          {it.name}<br /><span className="text-[9px] font-normal">/{it.max_score}</span>
-                        </th>
-                      ))}
-                      <th className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
-                        ได้<br /><span className="text-[9px] font-normal">/ ที่ตรวจแล้ว</span>
-                      </th>
-                      <th className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
-                        ร้อยละ<br /><span className="text-[9px] font-normal">ของที่ตรวจแล้ว</span>
-                      </th>
-                      <th className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
-                        เกรด<br /><span className="text-[9px] font-normal">คาดการณ์</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {students.map((s, i) => {
-                      // เทียบเกรดจากร้อยละของ "ส่วนที่ตรวจแล้ว" ไม่ใช่จาก earned ดิบ
-                      // เพราะ earned มีตัวหารเป็น usedWeight ไม่ใช่ 100
-                      // ต้นเทอมที่ตรวจแค่กลางภาค ถ้าเทียบ earned ตรง ๆ จะ F ทั้งห้อง
-                      const w = weightedTotal(items, id => grades[`${id}:${s.id}`] ?? null);
-                      const g = w.normalized == null ? null : letterGradeFrom(scale, w.normalized);
-                      const done = isFullyGraded(w);
-                      return (
-                        <motion.tr key={s.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
-                          className="border-b border-border last:border-0">
-                          <td className="p-2.5 sticky left-0 bg-card">
-                            <p className="font-medium text-foreground whitespace-nowrap">{s.name}</p>
-                            <p className="text-[10px] text-muted-foreground">{s.code}</p>
-                          </td>
-                          {items.map(it => {
-                            const key = `${it.id}:${s.id}`;
-                            const err = badCells[key];
-                            return (
-                              <td key={it.id} className="p-1.5 text-center">
-                                <input
-                                  type="number" min={0} max={maxScoreOf(it) ?? undefined} step="any"
-                                  value={grades[key] ?? ''}
-                                  onChange={e => setScore(it.id, s.id, e.target.value)}
-                                  title={err ?? undefined}
-                                  aria-invalid={!!err}
-                                  className={`w-14 px-1.5 py-1 rounded-lg text-center outline-none ${
-                                    err
-                                      ? 'bg-destructive/15 text-destructive ring-1 ring-destructive'
-                                      : 'bg-muted text-foreground'
-                                  }`}
-                                />
-                              </td>
-                            );
-                          })}
-                          <td className="p-2.5 text-center font-semibold text-foreground whitespace-nowrap">
-                            {w.usedWeight > 0 ? `${w.earned.toFixed(1)} / ${w.usedWeight}` : '—'}
-                          </td>
-                          <td className="p-2.5 text-center font-semibold text-foreground whitespace-nowrap">
-                            {w.normalized == null ? '—' : `${w.normalized.toFixed(1)}%`}
-                          </td>
-                          <td className={`p-2.5 text-center font-bold whitespace-nowrap ${g ? gradeColor(g) : 'text-muted-foreground'}`}>
-                            {g == null ? '—' : (done ? g : `${g}*`)}
-                          </td>
-                        </motion.tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                <p className="px-3 pb-3 pt-1 text-[10px] text-muted-foreground leading-relaxed">
-                  ช่อง "ได้" คือคะแนนที่ได้เทียบกับน้ำหนักที่ตรวจแล้ว ไม่ใช่เทียบ 100 ·
-                  หัวข้อที่ยังไม่ตรวจไม่ถูกนับเป็นศูนย์และไม่ถูกนับในตัวหาร ·
-                  เครื่องหมาย * = ยังตรวจไม่ครบ 100% เกรดยังเปลี่ยนได้ ·
-                  นักศึกษาจะไม่เห็นตัวอักษรเกรดจนกว่าจะตรวจครบและกดประกาศผล ·
-                  เกณฑ์ตัดเกรดที่ใช้: {scaleIsCourseSpecific ? 'ของรายวิชานี้' : 'ค่าเริ่มต้นของระบบ'}
-                  {scale.length > 0 && ` (${scale.map(r => `${r.grade}≥${r.min_score}`).join(' · ')})`}
-                </p>
-              </div>
+            {/* ── ตารางคะแนนแบบแท็บรายหมวด (ข้อ 4.1) ──
+                 คิดด้วย componentScore()/courseScore() ซึ่งเป็นสูตรเดียวกับที่
+                 ฐานข้อมูลใช้ ไม่ใช่ grade_items.weight แบบเดิม จึงไม่มีทางที่
+                 ตัวเลขฝั่งอาจารย์กับฝั่งนักศึกษาจะไม่ตรงกัน */}
+            {students.length > 0 && (
+              <GradeSheet
+                components={components}
+                items={structureItems}
+                students={students}
+                grades={grades}
+                badCells={badCells}
+                scale={scale}
+                published={published}
+                readOnly={gradesLocked}
+                onChange={setScore}
+              />
             )}
+
           </>
         )}
 
