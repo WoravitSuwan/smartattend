@@ -63,6 +63,10 @@ const InstructorDashboard = () => {
     const summaries: SummaryRow[] = [];
     for (const id of ids) summaries.push(...await fetchSummary({ courseId: id }));
 
+    // attendance_rate เป็น null เมื่อรายวิชายังไม่มีคาบที่ปิดแล้วเลย
+    // กรณีนั้นถือว่า "ยังไม่เสี่ยง" (100) ไม่ใช่ "เสี่ยงสุด" (0) — ไม่ใช่บั๊กแบบ
+    // Number(x) || 100 ที่เปลี่ยนค่า 0 จริงเป็น 100 เพราะที่นี่ใช้ ?? ซึ่งจับ
+    // เฉพาะ null/undefined ค่า 0 จริงยังเป็น 0 และยังถูกนับว่าเสี่ยงตามเดิม
     const risky = summaries.filter(s => Number(s.attendance_rate ?? 100) < 80);
     if (risky.length) {
       const { data: profs } = await supabase.from('profiles').select('user_id, name, student_code')
