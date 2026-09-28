@@ -1175,6 +1175,16 @@ export type Database = {
         Args: { _component_id: string; _student_id: string }
         Returns: Json
       }
+      save_component_items: {
+        Args: {
+          _component_id: string
+          _items: Json
+          _delete_missing?: boolean
+          _on_overflow?: string
+          _reason?: string
+        }
+        Returns: Json
+      }
       save_grade_structure_v2: {
         Args: {
           _course_id: string

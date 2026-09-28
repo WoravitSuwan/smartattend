@@ -28,6 +28,7 @@ const ACTION_LABELS: Record<string, { label: string; color: string }> = {
   'grade.announce': { label: 'ประกาศคะแนน', color: 'bg-purple-500/15 text-purple-500 border-purple-500/30' },
   'grade_item.create': { label: 'เพิ่มหัวข้อคะแนน', color: 'bg-purple-500/15 text-purple-500 border-purple-500/30' },
   'grade_item.update': { label: 'แก้ไขหัวข้อคะแนน', color: 'bg-purple-500/15 text-purple-500 border-purple-500/30' },
+  'grade_component.items': { label: 'แก้รายการคะแนนในหมวด', color: 'bg-purple-500/15 text-purple-500 border-purple-500/30' },
   'grade_item.delete': { label: 'ลบหัวข้อคะแนน', color: 'bg-red-500/15 text-red-500 border-red-500/30' },
   'attendance.manual_edit': { label: 'แก้ไขการเข้าเรียน', color: 'bg-amber-500/15 text-amber-500 border-amber-500/30' },
   'edit_attendance': { label: 'แก้ไขการเข้าเรียน', color: 'bg-amber-500/15 text-amber-500 border-amber-500/30' },

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  Copy, FileStack, GripVertical, Loader2, Plus, Save, Trash2,
+  ChevronDown, ChevronRight, Copy, FileStack, GripVertical, Loader2, Plus, Save, Trash2,
 } from 'lucide-react';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import AttendanceCreditPreview from '@/components/AttendanceCreditPreview';
+import ComponentItemsEditor from '@/components/ComponentItemsEditor';
 import {
   applyTemplate, calcModeHelp, calcModeLabels, componentKinds, copyGradeStructure,
   deleteTemplate, fetchComponents, fetchStructureItems, fetchTemplates, saveGradeStructure,
@@ -38,11 +39,15 @@ const toRows = (cs: GradeComponent[]): Row[] => cs.map(c => ({
 const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
   const { user } = useAuth();
   const [rows, setRows] = useState<Row[]>([]);
+  /** หมวดตามที่ฐานข้อมูลเก็บไว้จริง (rows คือสำเนาที่แก้ค้างอยู่ในฟอร์ม) */
+  const [saved, setSaved] = useState<GradeComponent[]>([]);
   const [items, setItems] = useState<StructureItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [reason, setReason] = useState('');
   const [removedIds, setRemovedIds] = useState<string[]>([]);
+  /** หมวดที่กางรายการคะแนนอยู่ */
+  const [openItems, setOpenItems] = useState<Record<string, boolean>>({});
 
   const [templates, setTemplates] = useState<StructureTemplate[]>([]);
   const [otherCourses, setOtherCourses] = useState<{ id: string; code: string; name: string }[]>([]);
@@ -57,6 +62,7 @@ const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
       fetchComponents(courseId), fetchStructureItems(courseId), fetchTemplates(),
     ]);
     setRows(toRows(cs));
+    setSaved(cs);
     setItems(its);
     setTemplates(tpl);
     setRemovedIds([]);
@@ -69,6 +75,12 @@ const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
     () => Math.round(rows.reduce((a, r) => a + (Number(r.weight_percent) || 0), 0) * 100) / 100,
     [rows]);
   const complete = weightsComplete(rows.map(r => ({ weight_percent: r.weight_percent })));
+
+  /** หมวดที่บันทึกแล้วจากฐานข้อมูล — ตัวแก้รายการต้องใช้ calc_mode ที่บันทึกจริง
+   *  ไม่ใช่ค่าที่กำลังพิมพ์ค้างอยู่ในฟอร์ม ไม่งั้นกฎน้ำหนักย่อยจะไม่ตรงกับที่
+   *  ฐานข้อมูลบังคับ */
+  const componentById = useMemo(
+    () => new Map(saved.map(c => [c.id, c])), [saved]);
 
   const itemsOf = useCallback(
     (componentId?: string | null) =>
@@ -264,12 +276,32 @@ const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
                     </label>
                   </div>
 
-                  {r.id && (
-                    <p className={`text-[10px] ${itemWeightBad ? 'text-destructive' : 'text-muted-foreground'}`}>
-                      {its.length} รายการ
-                      {r.calc_mode === 'weighted_items' && its.length > 0 &&
-                        ` · น้ำหนักย่อยรวม ${Math.round(its.reduce((a, i) => a + i.weight_in_component, 0) * 100) / 100}%`}
-                      {itemWeightBad && ' — ต้องรวมเป็น 100%'}
+                  {r.id ? (
+                    <>
+                      <button
+                        onClick={() => setOpenItems(o => ({ ...o, [r.id!]: !o[r.id!] }))}
+                        className={`flex items-center gap-1 text-[10px] ${
+                          itemWeightBad ? 'text-destructive' : 'text-muted-foreground'
+                        }`}>
+                        {openItems[r.id] ? <ChevronDown className="w-3 h-3" />
+                                         : <ChevronRight className="w-3 h-3" />}
+                        {its.length} รายการ
+                        {r.calc_mode === 'weighted_items' && its.length > 0 &&
+                          ` · น้ำหนักย่อยรวม ${Math.round(its.reduce((a, i) => a + i.weight_in_component, 0) * 100) / 100}%`}
+                        {itemWeightBad && ' — ต้องรวมเป็น 100%'}
+                      </button>
+                      {openItems[r.id] && (
+                        <ComponentItemsEditor
+                          component={componentById.get(r.id)!}
+                          items={its}
+                          reason={reason}
+                          onSaved={load}
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground">
+                      บันทึกหมวดนี้ก่อน แล้วจะเพิ่มรายการคะแนนในหมวดได้
                     </p>
                   )}
 

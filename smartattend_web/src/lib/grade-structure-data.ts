@@ -141,3 +141,57 @@ export async function applyTemplate(templateId: string, courseId: string) {
 export async function deleteTemplate(templateId: string) {
   return (supabase as any).from('grade_structure_templates').delete().eq('id', templateId);
 }
+
+/** รายการคะแนนที่ส่งไปบันทึก — ไม่ส่ง id = สร้างใหม่ */
+export interface ItemDraft {
+  id?: string | null;
+  name: string;
+  /** คะแนนดิบเต็มของรายการ ไม่ใช่เปอร์เซ็นต์ */
+  max_score: number;
+  /** ใช้เฉพาะหมวดโหมด weighted_items — รวมกันในหมวดต้องเป็น 100 */
+  weight_in_component?: number;
+}
+
+export interface SaveItemsResult {
+  component_id: string;
+  created: number;
+  updated: number;
+  removed: number;
+  /** จำนวนคะแนนของนักศึกษาที่ถูกปรับจากการเปลี่ยนคะแนนเต็ม */
+  adjusted: number;
+  /** ชื่อรายการที่ลบไม่ได้เพราะมีคะแนนของนักศึกษาอยู่ */
+  blocked: string[];
+  calc_mode: CalcMode;
+}
+
+/**
+ * บันทึกรายการคะแนน "ทั้งหมวด" ในครั้งเดียว
+ *
+ * ต้องส่งมาทั้งหมวดเพราะกฎน้ำหนักย่อยรวม 100 ของโหมด weighted_items ถูกบังคับ
+ * ด้วย CONSTRAINT TRIGGER แบบ DEFERRED ที่ตรวจตอน COMMIT การบันทึกทีละรายการ
+ * จะผิดกฎกลางทางเสมอ (แก้จาก 60/40 เป็น 50/50 รายการแรกทำให้ผลรวมเป็น 90)
+ *
+ * onOverflow ค่าเริ่มต้น 'reject' โดยเจตนา — การลดคะแนนเต็มแล้วแก้คะแนนของ
+ * นักศึกษาให้เองเงียบ ๆ เป็นการตัดสินใจแทนอาจารย์
+ *
+ * deleteMissing ลบได้เฉพาะรายการที่ยังไม่มีคะแนนของนักศึกษา รายการที่มีคะแนน
+ * จะถูกคืนมาใน blocked ให้ไปใช้ deleteGradeItem() ที่บังคับให้พิมพ์ชื่อยืนยัน
+ */
+export async function saveComponentItems(
+  componentId: string, items: ItemDraft[],
+  opts: {
+    deleteMissing?: boolean;
+    onOverflow?: 'reject' | 'rescale' | 'clamp';
+    reason?: string | null;
+  } = {},
+): Promise<{ result: SaveItemsResult | null; error: { message?: string } | null }> {
+  const { data, error } = await supabase.rpc('save_component_items', {
+    _component_id: componentId,
+    _items: items as unknown as never,
+    _delete_missing: opts.deleteMissing ?? false,
+    _on_overflow: opts.onOverflow ?? 'reject',
+    _reason: opts.reason ?? undefined,
+  });
+  if (error) return { result: null, error };
+  return { result: data as unknown as SaveItemsResult, error: null };
+}
