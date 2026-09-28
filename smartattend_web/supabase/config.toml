@@ -1,4 +1,7 @@
-project_id = "upucavobjepfbovnupff"
+# ชื่อโปรเจกต์ท้องถิ่น ใช้กับ `supabase start` เท่านั้น ไม่ใช่ project ref ของจริง
+# การผูกกับโปรเจกต์บนคลาวด์ทำด้วย `supabase link --project-ref <your-project-ref>`
+# ซึ่งเก็บค่าไว้ใน supabase/.temp/ (ถูก .gitignore ไว้แล้ว)
+project_id = "smartattend"
 
 [functions.admin-create-user]
 verify_jwt = true
