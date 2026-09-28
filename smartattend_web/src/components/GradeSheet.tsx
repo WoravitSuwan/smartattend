@@ -25,6 +25,9 @@ interface Props {
 
 const SUMMARY = '__summary__';
 
+/** ปัดสองตำแหน่งตอนแสดงผลเท่านั้น ไม่ปัดระหว่างคำนวณ และไม่โชว์ .00 ที่ไม่จำเป็น */
+const round2 = (n: number) => String(Math.round(n * 100) / 100);
+
 /**
  * ตารางกรอกคะแนนแบบแท็บรายหมวด (สเปกข้อ 4.1)
  *
@@ -56,6 +59,11 @@ const GradeSheet = ({
   const activeItems = active ? (itemsOf.get(active.id) ?? []) : [];
   /** คอลัมน์ของหมวดนี้ยังถูกปิดบังจากนักศึกษาอยู่ (ปลายภาคและยังไม่ประกาศผล) */
   const lockedColumn = !!active?.is_final_exam && !published;
+
+  /** น้ำหนักรวมที่อาจารย์ตั้งไว้ทุกหมวด — ตัวหารของ "ตรวจไปแล้วกี่เปอร์เซ็นต์" */
+  const declaredWeight = useMemo(
+    () => Math.round(components.reduce((a, c) => a + (Number(c.weight_percent) || 0), 0) * 100) / 100,
+    [components]);
 
   /** รายการที่ไม่ได้อยู่ในหมวดใดเลย — ไม่ถูกนับในคะแนน ต้องบอกอาจารย์ */
   const orphanItems = useMemo(
@@ -225,13 +233,16 @@ const GradeSheet = ({
                   );
                 })}
                 <th className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
-                  ได้<br /><span className="text-[9px] font-normal">/ ที่ตรวจแล้ว</span>
+                  ได้<br /><span className="text-[9px] font-normal">/ น้ำหนักที่ตรวจแล้ว</span>
+                </th>
+                <th className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
+                  ตรวจแล้ว<br /><span className="text-[9px] font-normal">ของ {declaredWeight}%</span>
                 </th>
                 <th className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
                   ร้อยละ<br /><span className="text-[9px] font-normal">ของที่ตรวจ</span>
                 </th>
                 <th className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
-                  เกรด<br /><span className="text-[9px] font-normal">คาดการณ์</span>
+                  เกรด<br /><span className="text-[9px] font-normal">ตรวจครบแล้วเท่านั้น</span>
                 </th>
               </tr>
             </thead>
@@ -239,8 +250,16 @@ const GradeSheet = ({
               {students.map((s, i) => {
                 const total = courseScore(components, cid => itemsOf.get(cid) ?? [],
                   id => scoreOf(id, s.id));
-                const g = total.normalized == null ? null : letterGradeFrom(scale, total.normalized);
+                // ตัวอักษรเกรดแสดงได้ต่อเมื่อ "ตรวจครบน้ำหนัก 100" เท่านั้น
+                // ระหว่างเทอมที่ยังตรวจไม่ครบ ตัวเลขที่คิดได้มาจากคะแนนแค่บางส่วน
+                // เอาไปตัดเกรดไม่ได้ และเคยทำให้ทั้งตารางขึ้น F ตอนยังไม่กรอกอะไรเลย
                 const done = isFullyGraded(total);
+                const g = done && total.normalized != null
+                  ? letterGradeFrom(scale, total.normalized)
+                  : null;
+                const gradedPct = total.declaredWeight > 0
+                  ? (total.usedWeight / total.declaredWeight) * 100
+                  : 0;
                 return (
                   <motion.tr key={s.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                     transition={{ delay: Math.min(i * 0.015, 0.4) }}
@@ -259,14 +278,19 @@ const GradeSheet = ({
                     ))}
                     <td className="p-2.5 text-center font-semibold text-foreground whitespace-nowrap">
                       {total.usedWeight > 0
-                        ? `${total.earned.toFixed(2)} / ${total.usedWeight.toFixed(0)}`
+                        ? `${round2(total.earned)} / ${round2(total.usedWeight)}`
+                        : '—'}
+                    </td>
+                    <td className="p-2.5 text-center text-muted-foreground whitespace-nowrap">
+                      {total.usedWeight > 0
+                        ? `${round2(total.usedWeight)}% (${gradedPct.toFixed(0)}%)`
                         : '—'}
                     </td>
                     <td className="p-2.5 text-center font-semibold text-foreground">
                       {total.normalized == null ? '—' : `${total.normalized.toFixed(1)}%`}
                     </td>
                     <td className="p-2.5 text-center font-bold whitespace-nowrap">
-                      {g == null ? '—' : (done ? g : `${g}*`)}
+                      {g ?? <span className="font-normal text-muted-foreground">—</span>}
                     </td>
                   </motion.tr>
                 );
@@ -281,8 +305,10 @@ const GradeSheet = ({
         <p className="text-[10px] text-muted-foreground leading-relaxed">
           ช่องที่ยังไม่ตรวจแสดงเป็นขีด ไม่ใช่ศูนย์ และไม่ถูกนับในตัวหาร ·
           แม่กุญแจ = คอลัมน์ที่นักศึกษายังไม่เห็นจนกว่าจะประกาศผล ·
-          เครื่องหมาย * = ยังตรวจไม่ครบ 100% เกรดยังเปลี่ยนได้ ·
-          นักศึกษาจะไม่เห็นตัวอักษรเกรดจนกว่าจะตรวจครบและประกาศผล
+          คอลัมน์ "ได้" เทียบกับน้ำหนักที่ตรวจแล้ว ไม่ใช่เทียบ 100 ·
+          ตัวอักษรเกรดขึ้นเมื่อตรวจครบ {declaredWeight}% แล้วเท่านั้น
+          ก่อนหน้านั้นแสดงเป็นขีด เพราะคิดจากคะแนนแค่บางส่วนยังตัดเกรดไม่ได้ ·
+          นักศึกษาจะไม่เห็นตัวอักษรเกรดจนกว่าจะตรวจครบและอาจารย์ประกาศผล
         </p>
         {orphanItems.length > 0 && (
           <p className="text-[10px] text-warning leading-relaxed">

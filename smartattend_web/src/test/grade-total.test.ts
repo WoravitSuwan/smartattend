@@ -179,6 +179,44 @@ describe('courseScore — น้ำหนักรวมไม่ถึง 100',
   });
 });
 
+describe('ตารางฝั่งอาจารย์ต้องไม่ขึ้น F ทั้งห้องตอนยังไม่กรอกคะแนน', () => {
+  // อาการที่พบจากการทดสอบหน้าจอจริง: เปิดหน้าคะแนนของวิชาที่ยังไม่กรอกอะไรเลย
+  // แล้วทั้งตารางขึ้นเกรด F เพราะเอา normalized ไปตัดเกรดโดยไม่ดูว่าตรวจครบหรือยัง
+  const cs = [comp('งาน', 40), comp('กลางภาค', 30), comp('ปลายภาค', 30)];
+  const items = [item('w1', 'งาน'), item('m1', 'กลางภาค'), item('f1', 'ปลายภาค')];
+
+  it('ยังไม่กรอกคะแนนเลย — ไม่มีทั้งร้อยละและตัวอักษรเกรด', () => {
+    const r = courseScore(cs, by(items), scores({}));
+    expect(r.usedWeight).toBe(0);
+    expect(r.normalized).toBeNull();      // ไม่ใช่ 0 จึงไม่มีอะไรให้ตัดเกรด
+    expect(isFullyGraded(r)).toBe(false); // -> หน้าจอต้องแสดงขีด ไม่ใช่ F
+  });
+
+  it('กรอกไปบางส่วนแล้วได้ศูนย์จริง — มีร้อยละ แต่ยังห้ามแสดงตัวอักษรเกรด', () => {
+    // กรณีนี้อันตรายกว่า เพราะ normalized = 0 ซึ่งตัดเกรดได้เป็น F
+    // แต่ตรวจไปแค่ 40 จาก 100 จึงยังไม่ใช่เกรดจริง
+    const r = courseScore(cs, by(items), scores({ w1: 0 }));
+    expect(r.usedWeight).toBeCloseTo(40, 10);
+    expect(r.normalized).toBe(0);
+    expect(lg(r.normalized)).toBe('F');   // ตัดเกรดได้ แต่...
+    expect(isFullyGraded(r)).toBe(false); // ...ยังตรวจไม่ครบ หน้าจอต้องแสดงขีด
+  });
+
+  it('ตรวจครบ 100 แล้วจึงแสดงตัวอักษรเกรดได้', () => {
+    const r = courseScore(cs, by(items), () => 0);
+    expect(r.usedWeight).toBeCloseTo(100, 10);
+    expect(isFullyGraded(r)).toBe(true);
+    expect(lg(r.normalized!)).toBe('F');  // ได้ศูนย์จริงทั้งวิชา F คือเกรดที่ถูก
+  });
+
+  it('สัดส่วนที่ตรวจไปแล้วเทียบกับน้ำหนักทั้งหมด', () => {
+    const r = courseScore(cs, by(items), scores({ w1: 100, m1: 100 }));
+    expect(r.usedWeight).toBeCloseTo(70, 10);
+    expect(r.declaredWeight).toBe(100);
+    expect(r.usedWeight / r.declaredWeight * 100).toBeCloseTo(70, 10);
+  });
+});
+
 describe('canShowLetterGrade', () => {
   const full = { usedWeight: 100 };
   const partial = { usedWeight: 99 };
