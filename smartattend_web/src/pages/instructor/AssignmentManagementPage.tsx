@@ -10,8 +10,11 @@ import { supabase } from '@/integrations/supabase/client';
 import { calcModeLabels, fetchComponents } from '@/lib/grade-structure-data';
 import type { GradeComponent } from '@/lib/grade-structure';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Plus, FileText, Calendar, Users, Trash2, Loader2, X, Paperclip } from 'lucide-react';
+import {
+  ArrowRight, Plus, FileText, Calendar, Users, Trash2, Loader2, X, Paperclip,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Course { id: string; code: string; name: string }
@@ -21,6 +24,7 @@ interface Course { id: string; code: string; name: string }
 const AssignmentManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string } = {}) => {
   const { user } = useAuth();
   const embedded = !!embeddedCourseId;
+  const navigate = useNavigate();
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState(embeddedCourseId ?? '');
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
@@ -35,6 +39,9 @@ const AssignmentManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: str
   });
   /** หมวดคะแนนของรายวิชา สำหรับผูกงานเข้ากับรายการคะแนนอัตโนมัติ */
   const [components, setComponents] = useState<GradeComponent[]>([]);
+  /** แยกจาก components.length === 0 เพราะ "ยังโหลดไม่เสร็จ" กับ "ไม่มีหมวดจริง"
+   *  ต้องแสดงคนละอย่าง ไม่งั้นจะขึ้นคำเตือนวาบหนึ่งทุกครั้งที่เปิดฟอร์ม */
+  const [loadingComponents, setLoadingComponents] = useState(true);
   const [attachment, setAttachment] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -52,11 +59,13 @@ const AssignmentManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: str
   }, [embeddedCourseId]);
 
   useEffect(() => {
-    if (!selectedCourse) { setComponents([]); return; }
+    if (!selectedCourse) { setComponents([]); setLoadingComponents(false); return; }
     let cancelled = false;
+    setLoadingComponents(true);
     fetchComponents(selectedCourse).then(cs => {
       if (cancelled) return;
       setComponents(cs);
+      setLoadingComponents(false);
       // เลือกหมวดที่เหมาะกับงานให้เป็นค่าเริ่มต้น เพื่อไม่ให้อาจารย์ลืมผูก
       // แล้วคะแนนไม่เข้าตารางคะแนน (หมวด weighted_items สร้างรายการอัตโนมัติ
       // ไม่ได้ เพราะระบบกำหนดน้ำหนักย่อยให้เองไม่ได้)
@@ -67,6 +76,11 @@ const AssignmentManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: str
     });
     return () => { cancelled = true; };
   }, [selectedCourse]);
+
+  /** พาไปหน้าตั้งโครงสร้างคะแนนของวิชาที่กำลังเลือกอยู่
+   *  ใช้ ?tab=grades เพื่อให้เปิดมาที่แท็บคะแนนเลย ไม่ต้องให้อาจารย์หาต่อเอง */
+  const goToGradeStructure = () =>
+    navigate(`/instructor/courses/${selectedCourse}?tab=grades`);
 
   const load = useCallback(async () => {
     if (!selectedCourse) return;
@@ -211,26 +225,46 @@ const AssignmentManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: str
                 นับเป็นคะแนนของรายวิชา
               </label>
 
+              {/* ช่องเลือกหมวดต้องเห็นเสมอเมื่อสวิตช์เปิด และเมื่อรายวิชายังไม่มีหมวด
+                  ต้องบอกทางไปตั้งโครงสร้าง ไม่ใช่ซ่อนช่องไปเฉย ๆ จนอาจารย์ไม่รู้ว่า
+                  ต้องทำอะไรก่อน */}
               {form.counts_toward_grade && (
                 <>
                   <div>
                     <label className="text-[10px] text-muted-foreground">หมวดคะแนนที่งานนี้เข้า</label>
-                    <select value={form.component_id}
-                      onChange={e => setForm({ ...form, component_id: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl bg-muted text-xs text-foreground outline-none">
-                      <option value="">— ไม่ผูกกับหมวด (ต้องกรอกคะแนนเองในหน้าคะแนน) —</option>
-                      {components.map(c => (
-                        <option key={c.id} value={c.id}
-                          disabled={c.calc_mode === 'weighted_items'}>
-                          {c.name} ({c.weight_percent}% · {calcModeLabels[c.calc_mode]})
-                          {c.calc_mode === 'weighted_items' ? ' — ต้องสร้างรายการเอง' : ''}
-                        </option>
-                      ))}
-                    </select>
-                    {components.length === 0 && (
+                    {loadingComponents ? (
+                      <p className="text-[11px] text-muted-foreground py-2">กำลังโหลดหมวดคะแนน...</p>
+                    ) : components.length === 0 ? (
+                      <div className="mt-1 rounded-xl border border-warning/40 bg-warning/10 p-2.5 space-y-1.5">
+                        <p className="text-[11px] font-semibold text-warning">
+                          ยังไม่ได้ตั้งโครงสร้างคะแนนของรายวิชานี้
+                        </p>
+                        <p className="text-[10px] text-foreground leading-relaxed">
+                          ต้องสร้างหมวดคะแนนก่อน งานนี้จึงจะผูกเข้าหมวดได้ ถ้าโพสต์งานตอนนี้
+                          คะแนนที่ตรวจจะไม่เข้าตารางคะแนนให้เอง ต้องไปกรอกเองในหน้าคะแนน
+                        </p>
+                        <button type="button" onClick={goToGradeStructure}
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary">
+                          ไปตั้งโครงสร้างคะแนน <ArrowRight className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <select value={form.component_id}
+                        onChange={e => setForm({ ...form, component_id: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-muted text-xs text-foreground outline-none">
+                        <option value="">— ไม่ผูกกับหมวด (ต้องกรอกคะแนนเองในหน้าคะแนน) —</option>
+                        {components.map(c => (
+                          <option key={c.id} value={c.id}
+                            disabled={c.calc_mode === 'weighted_items'}>
+                            {c.name} ({c.weight_percent}% · {calcModeLabels[c.calc_mode]})
+                            {c.calc_mode === 'weighted_items' ? ' — ต้องสร้างรายการเอง' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {components.length > 0 && !form.component_id && (
                       <p className="text-[10px] text-warning mt-1">
-                        รายวิชานี้ยังไม่มีหมวดคะแนน — ตั้งได้ที่แท็บคะแนน ถ้าไม่ผูกหมวด
-                        คะแนนที่ตรวจจะไม่เข้าตารางคะแนนอัตโนมัติ
+                        ยังไม่ได้เลือกหมวด — คะแนนที่ตรวจจะไม่เข้าตารางคะแนนให้เอง
                       </p>
                     )}
                     {form.component_id && (

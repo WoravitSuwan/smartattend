@@ -7,7 +7,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { closeClassSession, startClassSession } from '@/lib/class-session';
 import { statusClass, statusLabel, fmtDateTime, type AttStatus } from '@/lib/attendance-data';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import {
@@ -42,7 +42,26 @@ const CourseDetailPage = () => {
   const navigate = useNavigate();
   const { courseId } = useParams<{ courseId: string }>();
 
-  const [tab, setTab] = useState<Tab>('sessions');
+  // แท็บอยู่ใน URL เพื่อให้ลิงก์จากที่อื่นพามาถึงแท็บที่ต้องการได้
+  // (เช่นปุ่ม "ไปตั้งโครงสร้างคะแนน" ในฟอร์มสร้างงาน) และรีเฟรชแล้วไม่เด้งกลับ
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlTab = searchParams.get('tab');
+  const [tab, setTabState] = useState<Tab>(
+    urlTab === 'assignments' || urlTab === 'grades' ? urlTab : 'sessions');
+
+  const setTab = (t: Tab) => {
+    setTabState(t);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (t === 'sessions') next.delete('tab'); else next.set('tab', t);
+      return next;
+    }, { replace: true });
+  };
+
+  // ลิงก์จากหน้าอื่นเปลี่ยน ?tab= ระหว่างที่หน้านี้เปิดอยู่ ต้องตามไปด้วย
+  useEffect(() => {
+    if (urlTab === 'assignments' || urlTab === 'grades') setTabState(urlTab);
+  }, [urlTab]);
   const [course, setCourse] = useState<CourseInfo | null>(null);
   const [roster, setRoster] = useState<RosterStudent[]>([]);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
