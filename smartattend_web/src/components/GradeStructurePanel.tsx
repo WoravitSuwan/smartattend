@@ -78,9 +78,11 @@ const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
 
   /** หมวดที่บันทึกแล้วจากฐานข้อมูล — ตัวแก้รายการต้องใช้ calc_mode ที่บันทึกจริง
    *  ไม่ใช่ค่าที่กำลังพิมพ์ค้างอยู่ในฟอร์ม ไม่งั้นกฎน้ำหนักย่อยจะไม่ตรงกับที่
-   *  ฐานข้อมูลบังคับ */
-  const componentById = useMemo(
+   *  ฐานข้อมูลบังคับ
+   *  คืน undefined ได้ เช่นระหว่างโหลดใหม่หลังบันทึก — ผู้เรียกต้องเช็คก่อนใช้ */
+  const savedById = useMemo(
     () => new Map(saved.map(c => [c.id, c])), [saved]);
+  const savedOf = (id: string) => savedById.get(id);
 
   const itemsOf = useCallback(
     (componentId?: string | null) =>
@@ -290,9 +292,9 @@ const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
                           ` · น้ำหนักย่อยรวม ${Math.round(its.reduce((a, i) => a + i.weight_in_component, 0) * 100) / 100}%`}
                         {itemWeightBad && ' — ต้องรวมเป็น 100%'}
                       </button>
-                      {openItems[r.id] && (
+                      {openItems[r.id] && savedOf(r.id) && (
                         <ComponentItemsEditor
-                          component={componentById.get(r.id)!}
+                          component={savedOf(r.id)!}
                           items={its}
                           reason={reason}
                           onSaved={load}
