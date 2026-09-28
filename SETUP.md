@@ -56,9 +56,9 @@
 > `--source usb` หรือ `--source csi` **การทดสอบในโครงงานนี้ใช้เว็บแคม USB**
 
 [ภาพชุดอุปกรณ์ที่ประกอบเสร็จ]
-
+<center>
 <img width="500" height="600" alt="4891" src="https://github.com/user-attachments/assets/d2ff36d6-d530-4660-bcd6-b71f25133f28" />
-
+</center>
 
 ## ก.1.2 ขั้นตอนการเปิดเครื่องและตั้งค่าครั้งแรก
 
@@ -197,9 +197,9 @@ sudo reboot
 > เช่น `--width 1280 --height 720 --downscale 0.5` ซึ่งจะตรวจจับที่ 640 × 360
 
 [ผังการติดตั้งตำแหน่งกล้องและระยะยืน]
-
+<center>
 <img width="500" height="600" alt="Gemini_Generated_Image_5k1de55k1de55k1d" src="https://github.com/user-attachments/assets/531f96f3-de63-450c-894b-12d7c7c86831" />
-
+</center>
 
 ## ก.1.4 ข้อควรระวังก่อนใช้งาน
 
@@ -268,9 +268,9 @@ portal ดู ก.1.5 แถวสุดท้าย
 > ภาพถ่ายหรือให้เพื่อนสแกนแทนจากที่ใดก็ได้ ซึ่งขัดกับวัตถุประสงค์ของโครงงาน
 
 [หน้าจออุปกรณ์ขณะเช็คชื่อ]
-
+<center>
 <img width="500" height="600" alt="Gemini_Generated_Image_npebl3npebl3npeb" src="https://github.com/user-attachments/assets/5fa570f4-02f1-4550-a67d-7dfe43f64c91" />
-
+</center>
 
 ## ก.2.2 สำหรับอาจารย์ผู้สอน
 
@@ -295,9 +295,9 @@ portal ดู ก.1.5 แถวสุดท้าย
     เหตุผลจึงแก้ได้ และนักศึกษาที่คะแนนเปลี่ยนจะได้รับการแจ้งเตือน
 
 [หน้าตารางคะแนนแบบแท็บรายหมวด]
-
+<center>
 <img width="500" height="600" alt="Screenshot 2569-09-28 at 16 51 23" src="https://github.com/user-attachments/assets/e634c27a-dfa2-43e3-8527-a7adb827c5d1" />
-
+</center>
 
 ## ก.2.3 สำหรับผู้ดูแลระบบ
 
