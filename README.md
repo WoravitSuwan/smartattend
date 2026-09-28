@@ -45,7 +45,9 @@ flowchart TD
     Q --> R["ประกาศผลและล็อกคะแนน"]
 ```
 
-![หน้าจออุปกรณ์ขณะเช็คชื่อ](docs/images/pi-scan.png)
+<center>
+<img width="500" height="600" alt="Gemini_Generated_Image_npebl3npebl3npeb" src="https://github.com/user-attachments/assets/5fa570f4-02f1-4550-a67d-7dfe43f64c91" />
+</center>
 
 ---
 

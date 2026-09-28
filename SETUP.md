@@ -362,7 +362,10 @@ Raspberry Pi 5 พร้อมกล้องที่ติดตั้งห�
 
 ## การเช็คชื่อที่อุปกรณ์หน้าห้องเรียน
 
-![หน้าจออุปกรณ์ขณะเช็คชื่อ](docs/images/pi-scan.png)
+[หน้าจออุปกรณ์ขณะเช็คชื่อ]
+<center>
+<img width="500" height="600" alt="Gemini_Generated_Image_npebl3npebl3npeb" src="https://github.com/user-attachments/assets/5fa570f4-02f1-4550-a67d-7dfe43f64c91" />
+</center>
 
 **วิธีเช็คชื่อ**
 
@@ -657,7 +660,10 @@ D+ ที่ 55, D ที่ 50 และ F ที่ 0
 
 ### 3. กรอกคะแนน
 
-![ตารางคะแนนแบบแท็บรายหมวด](docs/images/grade-sheet.png)
+[ตารางคะแนนแบบแท็บรายหมวด]
+<center>
+<img width="500" height="600" alt="Screenshot 2569-09-28 at 16 51 23" src="https://github.com/user-attachments/assets/e634c27a-dfa2-43e3-8527-a7adb827c5d1" />
+</center>
 
 ตารางคะแนนแบ่งเป็นแท็บตามหมวด มีกี่หมวดก็ขึ้นเท่านั้นแท็บ และแท็บสุดท้าย
 คือ **สรุปรวม** เสมอ
