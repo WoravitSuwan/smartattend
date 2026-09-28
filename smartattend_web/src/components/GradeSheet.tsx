@@ -5,7 +5,7 @@ import {
   componentScore, courseScore, type GradeComponent, type StructureItem,
 } from '@/lib/grade-structure';
 import { calcModeLabels } from '@/lib/grade-structure-data';
-import { letterGradeFrom, type GradeScaleRow } from '@/lib/grade-data';
+import { isFullyGraded, letterGradeFrom, type GradeScaleRow } from '@/lib/grade-data';
 
 interface Student { id: string; name: string; code: string }
 
@@ -54,6 +54,8 @@ const GradeSheet = ({
 
   const active = components.find(c => c.id === tab) ?? null;
   const activeItems = active ? (itemsOf.get(active.id) ?? []) : [];
+  /** คอลัมน์ของหมวดนี้ยังถูกปิดบังจากนักศึกษาอยู่ (ปลายภาคและยังไม่ประกาศผล) */
+  const lockedColumn = !!active?.is_final_exam && !published;
 
   /** รายการที่ไม่ได้อยู่ในหมวดใดเลย — ไม่ถูกนับในคะแนน ต้องบอกอาจารย์ */
   const orphanItems = useMemo(
@@ -121,11 +123,18 @@ const GradeSheet = ({
                     </th>
                     {activeItems.map(it => (
                       <th key={it.id} className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
+                        {/* คอลัมน์ของหมวดปลายภาคที่ยังไม่ประกาศผล ติดแม่กุญแจไว้ให้เห็น
+                            ว่านักศึกษายังไม่เห็นคะแนนช่องนี้ */}
+                        {lockedColumn && (
+                          <Lock className="w-2.5 h-2.5 inline mr-1 text-warning"
+                            aria-label="นักศึกษายังไม่เห็นคะแนนคอลัมน์นี้" />
+                        )}
                         {it.name}
                         <br />
                         <span className="text-[9px] font-normal">
                           /{it.max_score}
                           {active.calc_mode === 'weighted_items' && ` · ${it.weight_in_component}%`}
+                          {lockedColumn && ' · ล็อก'}
                         </span>
                       </th>
                     ))}
@@ -155,6 +164,8 @@ const GradeSheet = ({
                               <input
                                 type="number" min={0} max={it.max_score} step="any"
                                 value={grades[key] ?? ''}
+                                // ช่องว่าง = ยังไม่ตรวจ ไม่ใช่ศูนย์ แสดงขีดไว้ให้อ่านออก
+                                placeholder="—"
                                 disabled={readOnly || auto}
                                 onChange={e => onChange(it.id, s.id, e.target.value)}
                                 title={err ?? (auto ? 'คะแนนนี้คำนวณอัตโนมัติ แก้ที่ต้นทาง' : undefined)}
@@ -196,13 +207,23 @@ const GradeSheet = ({
                 <th className="text-left p-2.5 font-medium text-muted-foreground sticky left-0 bg-card">
                   นักศึกษา
                 </th>
-                {components.map(c => (
-                  <th key={c.id} className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
-                    <button onClick={() => setTab(c.id)} className="hover:text-primary">
-                      {c.name}<br /><span className="text-[9px] font-normal">/{c.weight_percent}</span>
-                    </button>
-                  </th>
-                ))}
+                {components.map(c => {
+                  const locked = c.is_final_exam && !published;
+                  return (
+                    <th key={c.id} className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
+                      <button onClick={() => setTab(c.id)} className="hover:text-primary">
+                        {locked && (
+                          <Lock className="w-2.5 h-2.5 inline mr-1 text-warning"
+                            aria-label="นักศึกษายังไม่เห็นคะแนนหมวดนี้" />
+                        )}
+                        {c.name}<br />
+                        <span className="text-[9px] font-normal">
+                          /{c.weight_percent}{locked && ' · ล็อก'}
+                        </span>
+                      </button>
+                    </th>
+                  );
+                })}
                 <th className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
                   ได้<br /><span className="text-[9px] font-normal">/ ที่ตรวจแล้ว</span>
                 </th>
@@ -219,7 +240,7 @@ const GradeSheet = ({
                 const total = courseScore(components, cid => itemsOf.get(cid) ?? [],
                   id => scoreOf(id, s.id));
                 const g = total.normalized == null ? null : letterGradeFrom(scale, total.normalized);
-                const done = total.usedWeight >= 99.99;
+                const done = isFullyGraded(total);
                 return (
                   <motion.tr key={s.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                     transition={{ delay: Math.min(i * 0.015, 0.4) }}
@@ -259,6 +280,7 @@ const GradeSheet = ({
       <div className="px-3 py-2.5 border-t border-border space-y-1">
         <p className="text-[10px] text-muted-foreground leading-relaxed">
           ช่องที่ยังไม่ตรวจแสดงเป็นขีด ไม่ใช่ศูนย์ และไม่ถูกนับในตัวหาร ·
+          แม่กุญแจ = คอลัมน์ที่นักศึกษายังไม่เห็นจนกว่าจะประกาศผล ·
           เครื่องหมาย * = ยังตรวจไม่ครบ 100% เกรดยังเปลี่ยนได้ ·
           นักศึกษาจะไม่เห็นตัวอักษรเกรดจนกว่าจะตรวจครบและประกาศผล
         </p>
