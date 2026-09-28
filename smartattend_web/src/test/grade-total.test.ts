@@ -1,133 +1,181 @@
 import { describe, expect, it } from 'vitest';
 import {
-  canShowLetterGrade, isFullyGraded, letterGrade, maxScoreOf, weightedTotal,
-  type GradeItem,
+  canShowLetterGrade, FALLBACK_GRADE_SCALE, gradePointFrom, isFullyGraded,
+  letterGradeFrom, maxScoreOf,
 } from '@/lib/grade-data';
+import { courseScore, type GradeComponent, type StructureItem } from '@/lib/grade-structure';
 
-const item = (
-  id: string, weight: number, max = 100, category: GradeItem['category'] = 'other',
-): GradeItem => ({
-  id, course_id: 'c1', name: id, category, max_score: max, weight,
-  created_at: '2026-01-01T00:00:00Z',
+/**
+ * เทสต์ชุดนี้เคยยิงไปที่ weightedTotal() ซึ่งคิดคะแนนจาก grade_items.weight
+ * ตอนนี้น้ำหนักอยู่ที่หมวด (grade_components.weight_percent) แล้ว ฟังก์ชันนั้น
+ * ถูกถอดออก กฎทุกข้อจึงย้ายมาตรวจกับ courseScore() ซึ่งเป็นสูตรเดียวกับที่
+ * ฐานข้อมูลใช้ กฎที่ต้องคงไว้เหมือนเดิมคือ
+ *   - ยังไม่ตรวจ (null) ไม่ถูกนับเป็นศูนย์ และไม่ถูกนับในตัวหาร
+ *   - 0 คือตรวจแล้วได้ศูนย์ ต่างจาก null เด็ดขาด
+ *   - ห้ามเอา earned ไปเทียบเกณฑ์เกรดตรง ๆ ต้องใช้ normalized
+ *   - ตัวอักษรเกรดต้องรอทั้งตรวจครบ 100 และประกาศผลแล้ว
+ */
+
+const comp = (
+  id: string, weight: number,
+  extra: Partial<GradeComponent> = {},
+): GradeComponent => ({
+  id, course_id: 'c1', name: id, kind: 'other', weight_percent: weight,
+  calc_mode: 'proportional', drop_lowest: 0, is_final_exam: false, score_mode: 'manual',
+  credit_on_time: 1, credit_late: 0.5, credit_excused: 1, credit_absent: 0,
+  position: 0, ...extra,
+});
+
+const item = (id: string, componentId: string, max = 100): StructureItem => ({
+  id, component_id: componentId, name: id, max_score: max,
+  weight_in_component: 0, position: 0, source: 'manual',
 });
 
 /** ตัวช่วยอ่านง่าย: สร้าง scoreOf จาก object (ไม่มีคีย์ = ยังไม่ตรวจ) */
 const scores = (m: Record<string, number | null>) => (id: string) =>
   Object.prototype.hasOwnProperty.call(m, id) ? m[id] : null;
 
-describe('weightedTotal — ตรวจบางส่วน', () => {
-  it('หัวข้อที่ยังไม่ตรวจไม่ถูกนับเป็นศูนย์ และไม่ถูกนับในตัวหาร', () => {
-    const items = [item('mid', 25), item('final', 75, 100, 'final')];
-    const w = weightedTotal(items, scores({ mid: 100 }));
-    expect(w.earned).toBe(25);
-    expect(w.usedWeight).toBe(25);          // ไม่ใช่ 100
-    expect(w.declaredWeight).toBe(100);
-    expect(w.normalized).toBe(100);         // ได้เต็มในส่วนที่ตรวจแล้ว
-    expect(isFullyGraded(w)).toBe(false);
+/** จับคู่รายการเข้าหมวดจากรายการแบน */
+const by = (items: StructureItem[]) => (cid: string) =>
+  items.filter(i => i.component_id === cid);
+
+const lg = (total: number) => letterGradeFrom(FALLBACK_GRADE_SCALE, total);
+
+describe('courseScore — ตรวจบางส่วน', () => {
+  it('หมวดที่ยังไม่ตรวจไม่ถูกนับเป็นศูนย์ และไม่ถูกนับในตัวหาร', () => {
+    const cs = [comp('mid', 25), comp('final', 75, { is_final_exam: true })];
+    const items = [item('mid1', 'mid'), item('final1', 'final')];
+    const r = courseScore(cs, by(items), scores({ mid1: 100 }));
+    expect(r.earned).toBeCloseTo(25, 10);
+    expect(r.usedWeight).toBeCloseTo(25, 10);      // ไม่ใช่ 100
+    expect(r.declaredWeight).toBe(100);
+    expect(r.normalized).toBeCloseTo(100, 10);     // ได้เต็มในส่วนที่ตรวจแล้ว
+    expect(isFullyGraded(r)).toBe(false);
   });
 
   it('ได้ 59.5 จากน้ำหนักที่ตรวจแล้ว 70 คิดเป็น 85% ไม่ใช่ 59.5%', () => {
-    const items = [item('a', 70), item('b', 30)];
-    const w = weightedTotal(items, scores({ a: 85 }));
-    expect(w.earned).toBeCloseTo(59.5, 10);
-    expect(w.usedWeight).toBe(70);
-    expect(w.normalized).toBeCloseTo(85, 10);
-    expect(letterGrade(w.normalized!)).toBe('A');
+    const cs = [comp('a', 70), comp('b', 30)];
+    const items = [item('a1', 'a'), item('b1', 'b')];
+    const r = courseScore(cs, by(items), scores({ a1: 85 }));
+    expect(r.earned).toBeCloseTo(59.5, 10);
+    expect(r.usedWeight).toBeCloseTo(70, 10);
+    expect(r.normalized).toBeCloseTo(85, 10);
+    expect(lg(r.normalized!)).toBe('A');
     // ถ้าเผลอเอา earned ไปเทียบเกรดตรง ๆ จะได้ D+ ซึ่งเป็นบั๊กเดิม
-    expect(letterGrade(w.earned)).toBe('D+');
+    expect(lg(r.earned)).toBe('D+');
   });
 
   it('คะแนน 0 ต่างจากยังไม่ตรวจ — 0 ถูกนับในตัวหาร', () => {
-    const items = [item('a', 50), item('b', 50)];
-    const zero = weightedTotal(items, scores({ a: 0 }));
-    expect(zero.usedWeight).toBe(50);
+    const cs = [comp('a', 50), comp('b', 50)];
+    const items = [item('a1', 'a'), item('b1', 'b')];
+
+    const zero = courseScore(cs, by(items), scores({ a1: 0 }));
+    expect(zero.usedWeight).toBeCloseTo(50, 10);
     expect(zero.earned).toBe(0);
     expect(zero.normalized).toBe(0);
 
-    const untouched = weightedTotal(items, scores({}));
+    const untouched = courseScore(cs, by(items), scores({}));
     expect(untouched.usedWeight).toBe(0);
     expect(untouched.normalized).toBeNull();
   });
 });
 
-describe('weightedTotal — ตรวจครบ', () => {
+describe('courseScore — ตรวจครบ', () => {
   it('ตรวจครบน้ำหนัก 100 แล้ว normalized เท่ากับ earned', () => {
-    const items = [item('a', 60), item('b', 40)];
-    const w = weightedTotal(items, () => 70);
-    expect(w.earned).toBeCloseTo(70, 10);
-    expect(w.normalized).toBeCloseTo(70, 10);
-    expect(w.usedWeight).toBe(100);
-    expect(isFullyGraded(w)).toBe(true);
-    expect(letterGrade(w.normalized!)).toBe('B');
+    const cs = [comp('a', 60), comp('b', 40)];
+    const items = [item('a1', 'a'), item('b1', 'b')];
+    const r = courseScore(cs, by(items), () => 70);
+    expect(r.earned).toBeCloseTo(70, 10);
+    expect(r.normalized).toBeCloseTo(70, 10);
+    expect(r.usedWeight).toBeCloseTo(100, 10);
+    expect(isFullyGraded(r)).toBe(true);
+    expect(lg(r.normalized!)).toBe('B');
   });
 
-  it('คะแนนเต็มไม่ใช่ 100 คิดตามสัดส่วนของหัวข้อนั้น', () => {
-    const w = weightedTotal([item('quiz', 20, 25)], scores({ quiz: 20 }));
-    expect(w.earned).toBeCloseTo(16, 10);   // 20/25 × 20
-    expect(w.normalized).toBeCloseTo(80, 10);
+  it('คะแนนเต็มไม่ใช่ 100 คิดตามสัดส่วนของรายการนั้น', () => {
+    const cs = [comp('quiz', 20)];
+    const items = [item('q1', 'quiz', 25)];
+    const r = courseScore(cs, by(items), scores({ q1: 20 }));
+    expect(r.earned).toBeCloseTo(16, 10);   // 20/25 × 20
+    expect(r.normalized).toBeCloseTo(80, 10);
   });
 
   it('ไม่ปัดเศษระหว่างสะสมผลรวม', () => {
-    // 1/3 ของ 10 สามหัวข้อ ต้องรวมได้ 10 พอดี ถ้าปัดกลางทางจะเพี้ยน
-    const items = [item('a', 10, 3), item('b', 10, 3), item('c', 10, 3)];
-    const w = weightedTotal(items, () => 1);
-    expect(w.earned).toBeCloseTo(10, 10);
-    expect(w.normalized).toBeCloseTo(33.3333333333, 8);
+    // 1/3 ของสามหมวดน้ำหนัก 10 ต้องรวมได้ 10 พอดี ถ้าปัดกลางทางจะเพี้ยน
+    const cs = [comp('a', 10), comp('b', 10), comp('c', 10)];
+    const items = [item('a1', 'a', 3), item('b1', 'b', 3), item('c1', 'c', 3)];
+    const r = courseScore(cs, by(items), () => 1);
+    expect(r.earned).toBeCloseTo(10, 10);
+    expect(r.normalized).toBeCloseTo(33.3333333333, 8);
   });
 });
 
-describe('weightedTotal — หัวข้อที่ถูกปิดบัง', () => {
+describe('courseScore — หมวดที่ถูกปิดบัง', () => {
   it('คะแนนปลายภาคที่ RLS ปิดบังมาเป็น null จึงไม่ถูกนับใน usedWeight', () => {
-    // ฝั่งนักศึกษา แถว student_grades ของหมวด final ถูกนโยบาย RLS กรองออก
-    // ทำให้ scoreOf คืน null — ต้องไม่ทำให้ usedWeight เพิ่มและต้องไม่เป็น 0 คะแนน
-    const items = [item('work', 70), item('final', 30, 100, 'final')];
-    const w = weightedTotal(items, scores({ work: 80 }));
-    expect(w.usedWeight).toBe(70);
-    expect(w.earned).toBeCloseTo(56, 10);
-    expect(w.normalized).toBeCloseTo(80, 10);
-    expect(isFullyGraded(w)).toBe(false);
+    // ฝั่งนักศึกษา แถว student_grades ของหมวดปลายภาคถูกนโยบาย RLS กรองออก
+    // ทำให้ scoreOf คืน null — ต้องไม่ทำให้ usedWeight เพิ่ม และต้องไม่เป็น 0 คะแนน
+    const cs = [comp('work', 70), comp('final', 30, { is_final_exam: true })];
+    const items = [item('w1', 'work'), item('f1', 'final')];
+    const r = courseScore(cs, by(items), scores({ w1: 80 }));
+    expect(r.usedWeight).toBeCloseTo(70, 10);
+    expect(r.earned).toBeCloseTo(56, 10);
+    expect(r.normalized).toBeCloseTo(80, 10);
+    expect(isFullyGraded(r)).toBe(false);
     // ตรวจไม่ครบ → ห้ามแสดงตัวอักษรเกรด แม้จะประกาศผลแล้วก็ยังไม่ครบ
-    expect(canShowLetterGrade(w, true)).toBe(false);
+    expect(canShowLetterGrade(r, true)).toBe(false);
   });
 });
 
-describe('weightedTotal — ไม่มีหัวข้อเลย', () => {
-  it('รายวิชาที่ยังไม่ตั้งหัวข้อคะแนน', () => {
-    const w = weightedTotal([], scores({}));
-    expect(w.earned).toBe(0);
-    expect(w.usedWeight).toBe(0);
-    expect(w.declaredWeight).toBe(0);
-    expect(w.normalized).toBeNull();
-    expect(isFullyGraded(w)).toBe(false);
-    expect(canShowLetterGrade(w, true)).toBe(false);
+describe('courseScore — ไม่มีหมวดหรือรายการเลย', () => {
+  it('รายวิชาที่ยังไม่ตั้งโครงสร้างคะแนน', () => {
+    const r = courseScore([], () => [], scores({}));
+    expect(r.earned).toBe(0);
+    expect(r.usedWeight).toBe(0);
+    expect(r.declaredWeight).toBe(0);
+    expect(r.normalized).toBeNull();
+    expect(isFullyGraded(r)).toBe(false);
+    expect(canShowLetterGrade(r, true)).toBe(false);
   });
 
-  it('หัวข้อน้ำหนัก 0 ไม่ถูกนับทั้งตัวตั้งและตัวหาร', () => {
-    const w = weightedTotal([item('extra', 0)], scores({ extra: 50 }));
-    expect(w.declaredWeight).toBe(0);
-    expect(w.usedWeight).toBe(0);
-    expect(w.normalized).toBeNull();
+  it('หมวดน้ำหนัก 0 ไม่เพิ่มทั้งตัวตั้งและตัวหาร', () => {
+    const cs = [comp('extra', 0)];
+    const items = [item('e1', 'extra')];
+    const r = courseScore(cs, by(items), scores({ e1: 50 }));
+    expect(r.declaredWeight).toBe(0);
+    expect(r.usedWeight).toBe(0);
+    expect(r.normalized).toBeNull();
+  });
+
+  it('หมวดที่ยังไม่มีรายการ นับน้ำหนักที่ตั้งไว้ แต่ยังไม่มีตัวหาร', () => {
+    const cs = [comp('a', 40), comp('ว่าง', 60)];
+    const items = [item('a1', 'a')];
+    const r = courseScore(cs, by(items), scores({ a1: 100 }));
+    expect(r.declaredWeight).toBe(100);
+    expect(r.usedWeight).toBeCloseTo(40, 10);   // หมวดที่ว่างยังไม่ถูกนับ
+    expect(isFullyGraded(r)).toBe(false);
   });
 });
 
-describe('weightedTotal — น้ำหนักรวมไม่ถึง 100', () => {
+describe('courseScore — น้ำหนักรวมไม่ถึง 100', () => {
   it('ตรวจครบตามที่ตั้งไว้แต่น้ำหนักรวมแค่ 80 ยังไม่ถือว่าครบ', () => {
-    const items = [item('a', 50), item('b', 30)];
-    const w = weightedTotal(items, () => 100);
-    expect(w.declaredWeight).toBe(80);
-    expect(w.usedWeight).toBe(80);
-    expect(w.normalized).toBe(100);
+    const cs = [comp('a', 50), comp('b', 30)];
+    const items = [item('a1', 'a'), item('b1', 'b')];
+    const r = courseScore(cs, by(items), () => 100);
+    expect(r.declaredWeight).toBe(80);
+    expect(r.usedWeight).toBeCloseTo(80, 10);
+    expect(r.normalized).toBeCloseTo(100, 10);
     // ตามข้อกำหนด: ตัวอักษรเกรดต้องรอให้ usedWeight ครบ 100 เท่านั้น
-    expect(isFullyGraded(w)).toBe(false);
-    expect(canShowLetterGrade(w, true)).toBe(false);
+    expect(isFullyGraded(r)).toBe(false);
+    expect(canShowLetterGrade(r, true)).toBe(false);
   });
 
   it('น้ำหนักรวมเกิน 100 คิดตามที่ตั้งไว้ และถือว่าครบ', () => {
-    const items = [item('a', 60), item('b', 60)];
-    const w = weightedTotal(items, () => 50);
-    expect(w.declaredWeight).toBe(120);
-    expect(w.usedWeight).toBe(120);
-    expect(isFullyGraded(w)).toBe(true);
+    const cs = [comp('a', 60), comp('b', 60)];
+    const items = [item('a1', 'a'), item('b1', 'b')];
+    const r = courseScore(cs, by(items), () => 50);
+    expect(r.declaredWeight).toBe(120);
+    expect(r.usedWeight).toBeCloseTo(120, 10);
+    expect(isFullyGraded(r)).toBe(true);
   });
 });
 
@@ -160,28 +208,35 @@ describe('maxScoreOf', () => {
     expect(maxScoreOf({ max_score: 0.5 })).toBe(0.5);
   });
 
-  it('หัวข้อที่คะแนนเต็มใช้ไม่ได้ ถูกข้ามและรายงานชื่อกลับมา', () => {
-    const items = [item('ปกติ', 50), item('พลาด', 50, 0)];
-    const w = weightedTotal(items, () => 25);
-    expect(w.invalidItems).toEqual(['พลาด']);
-    expect(w.declaredWeight).toBe(50);      // นับแค่หัวข้อที่ใช้ได้
-    expect(w.usedWeight).toBe(50);
-    expect(w.earned).toBeCloseTo(12.5, 10); // 25/100 × 50
-    expect(w.normalized).toBeCloseTo(25, 10);
+  it('รายการที่คะแนนเต็มใช้ไม่ได้ ถูกข้ามและรายงานชื่อกลับมา', () => {
+    const cs = [comp('a', 50)];
+    const items = [item('ปกติ', 'a', 100), item('พลาด', 'a', 0)];
+    const r = courseScore(cs, by(items), () => 25);
+    expect(r.perComponent[0].score.invalidNames).toEqual(['พลาด']);
+    expect(r.earned).toBeCloseTo(12.5, 10);   // 25/100 × 50
+    expect(r.normalized).toBeCloseTo(25, 10);
   });
 });
 
-describe('letterGrade — ค่าขอบเขตของทุกช่วง', () => {
-  const cases: [number, string][] = [
-    [100, 'A'], [80, 'A'], [79.99, 'B+'],
-    [75, 'B+'], [74.99, 'B'],
-    [70, 'B'], [69.99, 'C+'],
-    [65, 'C+'], [64.99, 'C'],
-    [60, 'C'], [59.99, 'D+'],
-    [55, 'D+'], [54.99, 'D'],
-    [50, 'D'], [49.99, 'F'], [0, 'F'],
+describe('letterGradeFrom / gradePointFrom — ค่าขอบเขตของทุกช่วง', () => {
+  const cases: [number, string, number][] = [
+    [100, 'A', 4.0], [80, 'A', 4.0], [79.99, 'B+', 3.5],
+    [75, 'B+', 3.5], [74.99, 'B', 3.0],
+    [70, 'B', 3.0], [69.99, 'C+', 2.5],
+    [65, 'C+', 2.5], [64.99, 'C', 2.0],
+    [60, 'C', 2.0], [59.99, 'D+', 1.5],
+    [55, 'D+', 1.5], [54.99, 'D', 1.0],
+    [50, 'D', 1.0], [49.99, 'F', 0], [0, 'F', 0],
   ];
-  for (const [score, expected] of cases) {
-    it(`${score} → ${expected}`, () => expect(letterGrade(score)).toBe(expected));
+  for (const [score, grade, point] of cases) {
+    it(`${score} → ${grade} (${point})`, () => {
+      expect(lg(score)).toBe(grade);
+      expect(gradePointFrom(FALLBACK_GRADE_SCALE, grade)).toBe(point);
+    });
   }
+
+  it('คะแนนต่ำกว่าทุกระดับในเกณฑ์ คืน null ไม่ใช่ F', () => {
+    // เกณฑ์ที่อาจารย์ตั้งเองอาจไม่มีระดับ min_score = 0
+    expect(letterGradeFrom([{ grade: 'A', min_score: 80, grade_point: 4 }], 50)).toBeNull();
+  });
 });

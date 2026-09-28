@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import type { OverflowPolicy } from '@/lib/grade-data';
 import type { CalcMode, GradeComponent, ScoreMode, StructureItem } from '@/lib/grade-structure';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -181,7 +182,7 @@ export async function saveComponentItems(
   componentId: string, items: ItemDraft[],
   opts: {
     deleteMissing?: boolean;
-    onOverflow?: 'reject' | 'rescale' | 'clamp';
+    onOverflow?: OverflowPolicy;
     reason?: string | null;
   } = {},
 ): Promise<{ result: SaveItemsResult | null; error: { message?: string } | null }> {

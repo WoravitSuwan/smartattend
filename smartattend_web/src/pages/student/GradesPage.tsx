@@ -1,13 +1,13 @@
 import MobileLayout from '@/components/MobileLayout';
 import { useAuth } from '@/lib/auth-context';
 import { fetchEnrolledCourses } from '@/lib/attendance-data';
-import {
-  canShowLetterGrade, categoryLabels, fetchGradeItems, fetchGradeScale, fetchStudentGrades,
-  gradeColor, gradePointFrom, isFullyGraded, letterGradeFrom, maxScoreOf, weightedTotal,
-  type GradeItem, type GradeScaleRow,
-} from '@/lib/grade-data';
+import { fetchGradeScale, gradeColor, gradePointFrom } from '@/lib/grade-data';
+import { fetchScoreSummary, type ScoreSummary } from '@/lib/score-summary-data';
+import { fetchStructureItems } from '@/lib/grade-structure-data';
+import type { StructureItem } from '@/lib/grade-structure';
+import { fetchStudentGrades } from '@/lib/grade-data';
 import { motion } from 'framer-motion';
-import { BarChart3, GraduationCap } from 'lucide-react';
+import { BarChart3, ChevronDown, ChevronRight, GraduationCap, Lock } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 interface CourseGrade {
@@ -15,25 +15,35 @@ interface CourseGrade {
   code: string;
   name: string;
   semester: string | null;
-  finalPublished: boolean;
-  items: GradeItem[];
+  /** สรุปคะแนนที่ฐานข้อมูลคำนวณให้ — แหล่งความจริงเดียว */
+  summary: ScoreSummary;
+  /** รายการคะแนนที่นักศึกษามีสิทธิ์เห็น (รายการที่ถูกปิดบังจะไม่อยู่ในนี้) */
+  items: StructureItem[];
+  /** คีย์ = grade_item_id */
   scores: Record<string, number | null>;
-  /** คะแนนที่ได้ เทียบกับ usedWeight (ไม่ใช่เทียบ 100) */
-  earned: number;
-  usedWeight: number;
-  declaredWeight: number;
-  /** ร้อยละของส่วนที่ตรวจแล้ว */
-  normalized: number | null;
-  /** ตัวอักษรเกรด — null เมื่อยังไม่ถึงเวลาที่จะบอกได้ */
-  grade: string | null;
-  /** เกณฑ์ตัดเกรดที่มีผลกับรายวิชานี้ (มาจากฐานข้อมูล) */
-  scale: GradeScaleRow[];
+  /** แต้มของเกรดที่ได้ ใช้คิด GPA — 0 เมื่อยังไม่มีเกรด */
+  gradePoint: number;
 }
 
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/**
+ * หน้าคะแนนของนักศึกษา
+ *
+ * คะแนนทุกตัวมาจาก get_student_score_summary() ไม่ได้คำนวณในเบราว์เซอร์
+ *   1. สูตรคิดคะแนนอยู่ในฐานข้อมูล (component_score) ถ้าหน้าจอคิดเองจะมีสูตร
+ *      สองชุดที่ต้องคอยให้ตรงกัน และเคยไม่ตรงกันมาแล้ว
+ *   2. น้ำหนักอยู่ที่หมวด (grade_components.weight_percent) ไม่ใช่ที่
+ *      grade_items.weight ซึ่งเลิกใช้แล้ว หน้านี้จึงไม่อ่านคอลัมน์นั้นอีก
+ *   3. RPC เป็น SECURITY INVOKER จึงเห็นข้อมูลเท่าที่ RLS อนุญาต หมวดที่ถูก
+ *      ปิดบังจะบอกมาเป็น masked = true แยกจาก "ยังไม่ตรวจ" ได้ชัดเจน
+ */
 const GradesPage = () => {
   const { user } = useAuth();
   const [rows, setRows] = useState<CourseGrade[]>([]);
   const [loading, setLoading] = useState(true);
+  /** หมวดที่กางรายการย่อยอยู่ */
+  const [open, setOpen] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!user) return;
@@ -44,30 +54,25 @@ const GradesPage = () => {
       const out: CourseGrade[] = [];
       for (const c of courses as {
         id: string; code: string; name: string; semester: string | null;
-        final_grade_published: boolean | null;
       }[]) {
-        const items = await fetchGradeItems(c.id);
-        if (items.length === 0) continue;
+        const summary = await fetchScoreSummary(c.id);
+        if (!summary || summary.components.length === 0) continue;
+
+        const items = await fetchStructureItems(c.id);
         const gs = await fetchStudentGrades(items.map(i => i.id), user.id);
         const scores: Record<string, number | null> = {};
         gs.forEach(g => { scores[g.grade_item_id] = g.score; });
-        const w = weightedTotal(items, id => scores[id] ?? null);
-        const finalPublished = !!c.final_grade_published;
-        // เกณฑ์ตัดเกรดมาจากตาราง grade_scales ของรายวิชานั้น ไม่ฮาร์ดโค้ด
-        const { scale } = await fetchGradeScale(c.id);
+
+        // แต้ม GPA มาจากเกณฑ์ตัดเกรดของรายวิชานั้น ไม่ฮาร์ดโค้ด
+        let gradePoint = 0;
+        if (summary.grade != null) {
+          const { scale } = await fetchGradeScale(c.id);
+          gradePoint = gradePointFrom(scale, summary.grade);
+        }
+
         out.push({
           courseId: c.id, code: c.code, name: c.name, semester: c.semester,
-          finalPublished, items, scores,
-          earned: w.earned,
-          usedWeight: w.usedWeight,
-          declaredWeight: w.declaredWeight,
-          normalized: w.normalized,
-          // ตัวอักษรเกรดแสดงได้เมื่อ "ตรวจครบ 100 และประกาศผลแล้ว" เท่านั้น
-          // ระหว่างนั้นแสดงแค่ว่าได้กี่คะแนนจากน้ำหนักที่ตรวจแล้ว
-          scale,
-          grade: canShowLetterGrade(w, finalPublished) && w.normalized != null
-            ? letterGradeFrom(scale, w.normalized)
-            : null,
+          summary, items, scores, gradePoint,
         });
       }
       if (!cancelled) { setRows(out); setLoading(false); }
@@ -75,20 +80,19 @@ const GradesPage = () => {
     return () => { cancelled = true; };
   }, [user]);
 
-  const summary = useMemo(() => {
+  const gpa = useMemo(() => {
     const bySemester = new Map<string, { points: number; count: number }>();
     let points = 0;
     let count = 0;
     for (const r of rows) {
       // นับเฉพาะวิชาที่มีเกรดจริงแล้ว (ตรวจครบ + ประกาศผล) วิชาที่ยังตรวจไม่ครบ
       // ถ้านับด้วย GPAX จะเป็นตัวเลขที่เปลี่ยนไปมาทุกครั้งที่อาจารย์กรอกคะแนน
-      if (r.grade == null) continue;
-      const p = gradePointFrom(r.scale, r.grade);
+      if (!r.summary.grade_is_final || r.summary.grade == null) continue;
       const sem = r.semester ?? 'อื่นๆ';
       const cur = bySemester.get(sem) ?? { points: 0, count: 0 };
-      cur.points += p; cur.count += 1;
+      cur.points += r.gradePoint; cur.count += 1;
       bySemester.set(sem, cur);
-      points += p; count += 1;
+      points += r.gradePoint; count += 1;
     }
     const semesters = Array.from(bySemester.entries())
       .sort(([a], [b]) => a.localeCompare(b))
@@ -99,7 +103,7 @@ const GradesPage = () => {
   return (
     <MobileLayout title="คะแนนเก็บ">
       <div className="px-4 py-4 space-y-3">
-        {summary.semesters.length > 0 && (
+        {gpa.semesters.length > 0 && (
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
             className="gradient-hero rounded-2xl p-5 shadow-float text-primary-foreground">
             <div className="flex items-center gap-3 mb-3">
@@ -108,15 +112,15 @@ const GradesPage = () => {
               </div>
               <div>
                 <p className="text-xs text-primary-foreground/70">สรุปผลการศึกษา (เฉพาะวิชาที่ประกาศผลแล้ว)</p>
-                <p className="text-2xl font-bold font-display">GPAX {summary.gpax.toFixed(2)}</p>
+                <p className="text-2xl font-bold font-display">GPAX {gpa.gpax.toFixed(2)}</p>
               </div>
               <div className="ml-auto text-right">
                 <p className="text-[10px] text-primary-foreground/70">รายวิชา</p>
-                <p className="text-lg font-bold font-display">{summary.courseCount}</p>
+                <p className="text-lg font-bold font-display">{gpa.courseCount}</p>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              {summary.semesters.map(s => (
+              {gpa.semesters.map(s => (
                 <div key={s.sem} className="bg-primary-foreground/10 rounded-xl p-3">
                   <p className="text-[10px] text-primary-foreground/70">ภาคเรียนที่ {s.sem}</p>
                   <p className="text-xl font-bold font-display">{s.gpa.toFixed(2)}</p>
@@ -132,79 +136,130 @@ const GradesPage = () => {
           <div className="text-center py-12 text-muted-foreground text-sm">ยังไม่มีข้อมูลคะแนน</div>
         )}
 
-        {rows.map((r, i) => (
-          <motion.div key={r.courseId} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.06 }} className="bg-card rounded-2xl p-5 shadow-elevated">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                <BarChart3 className="w-5 h-5 text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-bold font-display text-foreground">{r.code}</p>
-                  {r.semester && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">{r.semester}</span>
+        {rows.map((r, i) => {
+          const sm = r.summary;
+          const remaining = round1(Math.max(0, sm.declared_weight - sm.used_weight));
+          return (
+            <motion.div key={r.courseId} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.06 }} className="bg-card rounded-2xl p-5 shadow-elevated">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <BarChart3 className="w-5 h-5 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-bold font-display text-foreground">{r.code}</p>
+                    {r.semester && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">{r.semester}</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate">{r.name}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  {sm.used_weight > 0 ? (
+                    <>
+                      <p className="text-xl font-bold font-display text-primary leading-tight">
+                        {sm.earned.toFixed(1)}
+                        <span className="text-xs font-medium text-muted-foreground"> / {round1(sm.used_weight)}</span>
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        คิดเป็น {sm.normalized?.toFixed(1) ?? '—'}% ของที่ตรวจแล้ว
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">ยังไม่มีคะแนน</p>
+                  )}
+                  {sm.grade != null && (
+                    <p className={`text-xs font-bold mt-0.5 ${gradeColor(sm.grade)}`}>เกรด {sm.grade}</p>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground truncate">{r.name}</p>
               </div>
-              <div className="text-right shrink-0">
-                {r.usedWeight > 0 ? (
-                  <>
-                    <p className="text-xl font-bold font-display text-primary leading-tight">
-                      {r.earned.toFixed(1)}
-                      <span className="text-xs font-medium text-muted-foreground"> / {r.usedWeight}</span>
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">
-                      คิดเป็น {r.normalized!.toFixed(1)}% ของที่ตรวจแล้ว
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-xs text-muted-foreground">ยังไม่มีคะแนน</p>
-                )}
-                {r.grade != null && (
-                  <p className={`text-xs font-bold mt-0.5 ${gradeColor(r.grade)}`}>เกรด {r.grade}</p>
-                )}
-              </div>
-            </div>
 
-            <div className="space-y-2">
-              {r.items.map(it => {
-                const s = r.scores[it.id];
-                const max = maxScoreOf(it);   // null = คะแนนเต็มของหัวข้อนี้ใช้ไม่ได้
-                const pct = s == null || max == null ? 0 : Math.min(100, (s / max) * 100);
-                return (
-                  <div key={it.id} className="flex items-center gap-3">
-                    <span className="text-xs text-muted-foreground w-28 truncate" title={`${categoryLabels[it.category]} · น้ำหนัก ${it.weight}%`}>
-                      {it.name}
-                    </span>
-                    <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                      <motion.div initial={{ width: 0 }}
-                        animate={{ width: `${pct}%` }}
-                        transition={{ delay: i * 0.06 + 0.25, duration: 0.5 }}
-                        className="h-full rounded-full gradient-primary" />
+              {/* ── รายหมวด กางดูรายการย่อยได้ ── */}
+              <div className="space-y-2">
+                {sm.components.map(c => {
+                  const key = `${r.courseId}:${c.component_id}`;
+                  const its = r.items
+                    .filter(it => it.component_id === c.component_id)
+                    .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+                  const pct = c.masked || c.weight <= 0
+                    ? 0
+                    : Math.min(100, (c.earned / c.weight) * 100);
+                  return (
+                    <div key={c.component_id}>
+                      <button
+                        onClick={() => setOpen(o => ({ ...o, [key]: !o[key] }))}
+                        disabled={its.length === 0}
+                        className="w-full flex items-center gap-2 text-left">
+                        {its.length > 0
+                          ? (open[key] ? <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
+                                       : <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />)
+                          : <span className="w-3 shrink-0" />}
+                        <span className="text-xs text-muted-foreground w-24 truncate"
+                          title={`น้ำหนัก ${c.weight}%`}>
+                          {c.name}
+                        </span>
+                        <span className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                          <motion.span initial={{ width: 0 }}
+                            animate={{ width: `${pct}%` }}
+                            transition={{ delay: i * 0.06 + 0.25, duration: 0.5 }}
+                            className="block h-full rounded-full gradient-primary" />
+                        </span>
+                        <span className="text-xs font-semibold text-foreground w-20 text-right shrink-0">
+                          {c.masked ? (
+                            <span className="inline-flex items-center gap-1 text-muted-foreground font-normal">
+                              <Lock className="w-3 h-3" /> {c.weight}%
+                            </span>
+                          ) : c.has_any_score
+                            ? `${c.earned.toFixed(1)}/${round1(c.max_points)}`
+                            : '—'}
+                        </span>
+                      </button>
+
+                      {open[key] && its.length > 0 && (
+                        <div className="pl-5 pt-1 space-y-0.5">
+                          {its.map(it => {
+                            const s = r.scores[it.id];
+                            return (
+                              <div key={it.id} className="flex items-center gap-2 text-[10px]">
+                                <span className="flex-1 min-w-0 truncate text-muted-foreground">{it.name}</span>
+                                <span className="text-foreground font-medium shrink-0">
+                                  {s == null ? 'รอตรวจ' : `${s}/${it.max_score}`}
+                                </span>
+                              </div>
+                            );
+                          })}
+                          {c.dropped > 0 && (
+                            <p className="text-[10px] text-muted-foreground">
+                              หมวดนี้ตัดคะแนนต่ำสุดออก {c.dropped} รายการ
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <span className="text-xs font-semibold text-foreground w-14 text-right">
-                      {max == null
-                        ? 'ตั้งค่าไม่ถูก'
-                        : s == null ? (it.category === 'final' ? 'รอประกาศ' : 'รอตรวจ') : `${s}/${max}`}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
 
-            <p className="text-[10px] text-muted-foreground text-center mt-3 leading-relaxed">
-              {r.grade != null
-                ? `ประกาศผลแล้ว · ได้ ${r.earned.toFixed(1)} จาก ${r.usedWeight} คะแนน`
-                : isFullyGraded(r)
-                  ? `ตรวจคะแนนครบแล้ว รอประกาศผล — ยังไม่แสดงเกรดจนกว่าอาจารย์จะประกาศ`
-                  : `ยังประเมินไม่ครบ · ตรวจแล้ว ${r.usedWeight}% จากน้ำหนักทั้งหมด ${r.declaredWeight}% ` +
-                    `(เหลืออีก ${Math.max(0, +(r.declaredWeight - r.usedWeight).toFixed(2))}%) — ` +
-                    `ยังไม่แสดงตัวอักษรเกรดเพราะคิดจากคะแนนแค่บางส่วน`}
-            </p>
-          </motion.div>
-        ))}
+              <p className="text-[10px] text-muted-foreground text-center mt-3 leading-relaxed">
+                {sm.grade != null && sm.grade_is_final
+                  ? `ประกาศผลแล้ว · ได้ ${sm.earned.toFixed(1)} จาก ${round1(sm.used_weight)} คะแนน`
+                  : sm.fully_graded
+                    ? 'ตรวจคะแนนครบแล้ว รอประกาศผล — ยังไม่แสดงเกรดจนกว่าอาจารย์จะประกาศ'
+                    : `ยังประเมินไม่ครบ · ตรวจแล้ว ${round1(sm.used_weight)}% จากน้ำหนักทั้งหมด `
+                      + `${round1(sm.declared_weight)}% (เหลืออีก ${remaining}%) — `
+                      + 'ยังไม่แสดงตัวอักษรเกรดเพราะคิดจากคะแนนแค่บางส่วน'}
+                {sm.masked_weight > 0 && (
+                  <>
+                    <br />
+                    คะแนนที่ถูกปิดบังอยู่ {round1(sm.masked_weight)}% (คะแนนปลายภาค)
+                    จะเห็นเมื่ออาจารย์ประกาศผล
+                  </>
+                )}
+              </p>
+            </motion.div>
+          );
+        })}
       </div>
     </MobileLayout>
   );

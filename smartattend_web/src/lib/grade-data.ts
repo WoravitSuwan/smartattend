@@ -2,13 +2,22 @@ import { supabase } from '@/integrations/supabase/client';
 
 export type GradeCategory = 'attendance' | 'assignment' | 'midterm' | 'final' | 'other';
 
+/**
+ * รายการคะแนนหนึ่งรายการ
+ *
+ * ⚠️ ไม่มีฟิลด์ weight โดยเจตนา — คอลัมน์ grade_items.weight เลิกใช้แล้ว
+ * น้ำหนักอยู่ที่ grade_components.weight_percent (ระดับหมวด) และ
+ * grade_items.weight_in_component (ระดับรายการ ในโหมด weighted_items)
+ * ถ้าโค้ดที่ไหนพยายามอ่าน it.weight จะเป็น error ตอนคอมไพล์ ซึ่งเป็นสิ่งที่ต้องการ
+ *
+ * ชนิดที่ครบกว่าสำหรับงานโครงสร้างคะแนนคือ StructureItem ใน lib/grade-structure.ts
+ */
 export interface GradeItem {
   id: string;
   course_id: string;
   name: string;
   category: GradeCategory;
   max_score: number;
-  weight: number;
   created_at: string;
 }
 
@@ -89,17 +98,6 @@ export function gradePointFrom(scale: GradeScaleRow[], grade: string): number {
   return scale.find(r => r.grade === grade)?.grade_point ?? 0;
 }
 
-/** ตัดเกรดด้วยเกณฑ์สำรอง — ใช้เฉพาะเมื่อยังไม่มีเกณฑ์จากฐานข้อมูลในมือ
- *  @deprecated ให้ใช้ letterGradeFrom(scale, total) กับเกณฑ์ที่ fetch มา */
-export function letterGrade(total: number): string {
-  return letterGradeFrom(FALLBACK_GRADE_SCALE, total) ?? 'F';
-}
-
-/** @deprecated ให้ใช้ gradePointFrom(scale, grade) */
-export function gradePoint(g: string): number {
-  return gradePointFrom(FALLBACK_GRADE_SCALE, g);
-}
-
 /** บันทึกเกณฑ์ตัดเกรดของรายวิชา ส่ง [] เพื่อกลับไปใช้ค่าเริ่มต้นของระบบ */
 export async function saveCourseGradeScale(
   courseId: string, rows: GradeScaleRow[], reason?: string | null,
@@ -120,13 +118,6 @@ export function gradeColor(g: string): string {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export async function fetchGradeItems(courseId: string): Promise<GradeItem[]> {
-  const { data, error } = await (supabase as any)
-    .from('grade_items').select('*').eq('course_id', courseId).order('created_at');
-  if (error) { console.error('fetchGradeItems', error); return []; }
-  return (data ?? []) as GradeItem[];
-}
-
 export async function fetchStudentGrades(itemIds: string[], studentId?: string): Promise<StudentGrade[]> {
   if (itemIds.length === 0) return [];
   let q = (supabase as any).from('student_grades').select('*').in('grade_item_id', itemIds);
@@ -134,22 +125,6 @@ export async function fetchStudentGrades(itemIds: string[], studentId?: string):
   const { data, error } = await q;
   if (error) { console.error('fetchStudentGrades', error); return []; }
   return (data ?? []) as StudentGrade[];
-}
-
-/** Upserts a student's score through the audited RPC (records who/old/new/
- *  when, plus an optional reason) instead of writing student_grades
- *  directly — every correction gets a paper trail. */
-export async function upsertGrade(
-  gradeItemId: string, studentId: string, score: number | null,
-  note?: string | null, reason?: string | null,
-) {
-  return supabase.rpc('upsert_student_grade', {
-    _grade_item_id: gradeItemId,
-    _student_id: studentId,
-    _score: score,
-    _note: note ?? undefined,
-    _reason: reason ?? undefined,
-  });
 }
 
 export interface GradeSaveError {
@@ -205,70 +180,6 @@ export function maxScoreOf(item: Pick<GradeItem, 'max_score'>): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-export interface WeightedResult {
-  /** คะแนนที่ได้จริง มีหน่วยเป็น "คะแนนของวิชา" — เทียบกับ usedWeight ไม่ใช่ 100
-   *  ยังไม่ปัดเศษ ให้หน้าจอปัดตอนแสดงผลเท่านั้น */
-  earned: number;
-  /** ผลรวมน้ำหนัก (%) ของหัวข้อที่ตรวจแล้ว = ตัวหารที่ถูกต้องของ earned */
-  usedWeight: number;
-  /** ผลรวมน้ำหนัก (%) ของหัวข้อทั้งหมดที่อาจารย์ตั้งไว้ */
-  declaredWeight: number;
-  /** earned ÷ usedWeight × 100 — ร้อยละของ "ส่วนที่ตรวจแล้ว"
-   *  null = ยังไม่มีคะแนนเลย (ยังไม่มีอะไรให้คิดร้อยละ) */
-  normalized: number | null;
-  /** หัวข้อที่ข้ามเพราะคะแนนเต็มใช้คำนวณไม่ได้ — ให้หน้าจอเตือนอาจารย์ */
-  invalidItems: string[];
-}
-
-/**
- * คะแนนถ่วงน้ำหนักของนักศึกษาหนึ่งคนในรายวิชาหนึ่ง
- *
- * กฎที่ต้องไม่พลาด
- *   - หัวข้อที่ยังไม่ตรวจ (score = null) ไม่ถูกนับเป็น 0 และไม่ถูกนับในตัวหาร
- *     ถ้านับ ต้นเทอมทุกคนจะกลายเป็น F ทั้งห้อง
- *   - หัวข้อที่ถูก RLS ปิดบัง (เช่นคะแนนปลายภาคก่อนประกาศผล) มาถึงที่นี่เป็น
- *     null เหมือนกัน จึงไม่ถูกนับใน usedWeight โดยอัตโนมัติ
- *   - score = 0 คือ "ตรวจแล้วได้ศูนย์" ต่างจาก null คือ "ยังไม่ตรวจ" เด็ดขาด
- *   - ไม่ปัดเศษระหว่างสะสมผลรวม ปัดเฉพาะตอนแสดงผล
- */
-export function weightedTotal(
-  items: GradeItem[], scoreOf: (itemId: string) => number | null,
-): WeightedResult {
-  let earned = 0;
-  let usedWeight = 0;
-  let declaredWeight = 0;
-  const invalidItems: string[] = [];
-
-  for (const it of items) {
-    const w = Number(it.weight);
-    if (!Number.isFinite(w) || w <= 0) continue;
-
-    const max = maxScoreOf(it);
-    if (max == null) {
-      // คะแนนเต็มใช้คำนวณไม่ได้ — ข้ามทั้งตัวตั้งและตัวหาร แล้วรายงานกลับไป
-      // ดีกว่าเดาเป็น 100 ซึ่งทำให้คะแนนของนักศึกษาผิดโดยไม่มีใครรู้
-      invalidItems.push(it.name);
-      continue;
-    }
-
-    declaredWeight += w;
-
-    const score = scoreOf(it.id);
-    if (score == null) continue;   // null = ยังไม่ตรวจ (ไม่ใช่ 0)
-
-    earned += (score / max) * w;
-    usedWeight += w;
-  }
-
-  return {
-    earned,
-    usedWeight,
-    declaredWeight,
-    normalized: usedWeight > 0 ? (earned / usedWeight) * 100 : null,
-    invalidItems,
-  };
-}
-
 /**
  * ตรวจว่าคะแนนที่กรอกใช้ได้หรือไม่ คืนข้อความภาษาไทย หรือ null เมื่อใช้ได้
  *
@@ -290,8 +201,9 @@ export function validateScore(
   return null;
 }
 
-/** น้ำหนักที่ตรวจแล้วครบ 100 หรือยัง (เผื่อความคลาดเคลื่อนของทศนิยม) */
-export function isFullyGraded(r: Pick<WeightedResult, 'usedWeight'>): boolean {
+/** น้ำหนักที่ตรวจแล้วครบ 100 หรือยัง (เผื่อความคลาดเคลื่อนของทศนิยม)
+ *  รับอะไรก็ได้ที่มี usedWeight — ปัจจุบันคือ CourseScore จาก lib/grade-structure */
+export function isFullyGraded(r: { usedWeight: number }): boolean {
   return r.usedWeight >= 99.99;
 }
 
@@ -304,15 +216,9 @@ export function isFullyGraded(r: Pick<WeightedResult, 'usedWeight'>): boolean {
  *      เกรดที่คำนวณได้จึงไม่ใช่เกรดจริง
  */
 export function canShowLetterGrade(
-  r: Pick<WeightedResult, 'usedWeight'>, finalPublished: boolean,
+  r: { usedWeight: number }, finalPublished: boolean,
 ): boolean {
   return isFullyGraded(r) && finalPublished;
-}
-
-/** Auto attendance score (0..max) derived from the attendance summary view. */
-export function attendanceScore(rate: number | null, maxScore: number): number {
-  const r = Math.max(0, Math.min(100, Number(rate ?? 0)));
-  return Math.round((r / 100) * maxScore * 100) / 100;
 }
 
 /** วิธีจัดการคะแนนที่เกินคะแนนเต็มใหม่เมื่อลดคะแนนเต็มของหัวข้อ */
@@ -324,40 +230,9 @@ export type OverflowPolicy =
   /** ตัดเฉพาะคนที่เกินให้เท่าเพดานใหม่ */
   | 'clamp';
 
-export interface SaveGradeItemResult {
-  item_id: string;
-  /** จำนวนคะแนนนักศึกษาที่ถูกปรับจากการเปลี่ยนคะแนนเต็ม */
-  adjusted: number;
-  action: 'created' | 'updated';
-  on_overflow?: OverflowPolicy;
-}
-
-/** สร้าง/แก้ไขหัวข้อคะแนน ผ่าน RPC ที่ตรวจสิทธิ์และบันทึก audit log ให้
- *  ส่ง itemId มาด้วย = แก้ไขหัวข้อเดิม, ไม่ส่ง = สร้างใหม่
- *
- *  onOverflow ค่าเริ่มต้นเป็น 'reject' โดยเจตนา — การลดคะแนนเต็มแล้วแก้คะแนน
- *  ของนักศึกษาให้เองเงียบ ๆ เป็นการตัดสินใจแทนอาจารย์ ต้องให้เลือกก่อนทุกครั้ง */
-export async function saveGradeItem(params: {
-  courseId: string;
-  itemId?: string | null;
-  name: string;
-  category: GradeCategory;
-  maxScore: number;
-  weight: number;
-  onOverflow?: OverflowPolicy;
-  reason?: string | null;
-}) {
-  return supabase.rpc('save_grade_item', {
-    _course_id: params.courseId,
-    _item_id: params.itemId ?? undefined,
-    _name: params.name,
-    _category: params.category,
-    _max_score: params.maxScore,
-    _weight: params.weight,
-    _on_overflow: params.onOverflow ?? 'reject',
-    _reason: params.reason ?? undefined,
-  });
-}
+/* saveGradeItem() ถูกถอดออกแล้ว — ใช้ saveComponentItems() ใน
+   lib/grade-structure-data.ts แทน RPC เดิมเขียน grade_items.weight ที่เลิกใช้
+   และไม่ตั้ง component_id ให้ รายการที่สร้างจึงไม่ถูกนับในคะแนน */
 
 /** จำนวนคะแนนที่บันทึกไว้แล้วในหัวข้อหนึ่ง (ถามฐานข้อมูล ไม่นับจากที่โหลดมา
  *  เพราะหน้าจออาจโหลดมาไม่ครบทุกคน) */

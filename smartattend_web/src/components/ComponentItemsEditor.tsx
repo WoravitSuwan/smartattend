@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Link2, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import ConfirmDialog from '@/components/ConfirmDialog';
-import { deleteGradeItem, gradeItemScoreCount } from '@/lib/grade-data';
+import { deleteGradeItem, gradeItemScoreCount, type OverflowPolicy } from '@/lib/grade-data';
 import {
   saveComponentItems, type ItemDraft, type SaveItemsResult,
 } from '@/lib/grade-structure-data';
@@ -122,7 +122,7 @@ const ComponentItemsEditor = ({ component, items, reason, onSaved }: Props) => {
     }
   };
 
-  const save = async (onOverflow: 'reject' | 'rescale' | 'clamp' = 'reject') => {
+  const save = async (onOverflow: OverflowPolicy = 'reject') => {
     setSaving(true);
     const { result, error } = await saveComponentItems(
       component.id,
@@ -283,7 +283,7 @@ const ComponentItemsEditor = ({ component, items, reason, onSaved }: Props) => {
         ]}
         cancelLabel="ยกเลิกการบันทึก"
         onCancel={() => setOverflowAsk(null)}
-        onConfirm={v => save(v as 'rescale' | 'clamp')}
+        onConfirm={v => save(v as OverflowPolicy)}
       />
 
       <ConfirmDialog
