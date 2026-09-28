@@ -22,6 +22,16 @@ interface Row extends ComponentDraft { key: string }
 
 const KINDS = Object.entries(componentKinds) as [string, string][];
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** คะแนนดิบเต็มรวมของหมวด คิดจากรายการที่มีอยู่จริง ณ ตอนนั้น */
+const sumMaxScore = (items: StructureItem[]) =>
+  round2(items.reduce((a, i) => a + (Number(i.max_score) || 0), 0));
+
+/** น้ำหนักย่อยรวมของหมวด ใช้เฉพาะโหมด weighted_items */
+const sumItemWeight = (items: StructureItem[]) =>
+  round2(items.reduce((a, i) => a + (Number(i.weight_in_component) || 0), 0));
+
 const toRows = (cs: GradeComponent[]): Row[] => cs.map(c => ({
   key: c.id, id: c.id, name: c.name, kind: c.kind,
   weight_percent: c.weight_percent, calc_mode: c.calc_mode, drop_lowest: c.drop_lowest,
@@ -288,8 +298,11 @@ const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
                         {openItems[r.id] ? <ChevronDown className="w-3 h-3" />
                                          : <ChevronRight className="w-3 h-3" />}
                         {its.length} รายการ
+                        {/* คะแนนเต็มรวมคิดจากรายการจริงในหมวด ไม่ใช่ค่าคงที่
+                            โพสต์งานเพิ่มเข้าหมวดแล้วตัวเลขนี้ขยับตามทันที */}
+                        {its.length > 0 && ` · เต็มรวม ${sumMaxScore(its)} คะแนน`}
                         {r.calc_mode === 'weighted_items' && its.length > 0 &&
-                          ` · น้ำหนักย่อยรวม ${Math.round(its.reduce((a, i) => a + i.weight_in_component, 0) * 100) / 100}%`}
+                          ` · น้ำหนักย่อยรวม ${sumItemWeight(its)}%`}
                         {itemWeightBad && ' — ต้องรวมเป็น 100%'}
                       </button>
                       {openItems[r.id] && savedOf(r.id) && (

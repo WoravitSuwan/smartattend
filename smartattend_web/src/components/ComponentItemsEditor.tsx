@@ -181,7 +181,7 @@ const ComponentItemsEditor = ({ component, items, reason, onSaved }: Props) => {
           รายการคะแนนในหมวดนี้ ({rows.length})
           {rows.length > 0 && (
             <span className="font-normal text-muted-foreground">
-              {' · '}คะแนนดิบรวม {maxTotal}
+              {' · '}เต็มรวม {maxTotal} คะแนน
             </span>
           )}
         </p>
