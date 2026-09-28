@@ -56,7 +56,7 @@
 > `--source usb` หรือ `--source csi` **การทดสอบในโครงงานนี้ใช้เว็บแคม USB**
 
 ![ภาพชุดอุปกรณ์ที่ประกอบเสร็จ]
-<img width="1108" height="1477" alt="4891" src="https://github.com/user-attachments/assets/d2ff36d6-d530-4660-bcd6-b71f25133f28" />
+<img width="500" height="500" alt="4891" src="https://github.com/user-attachments/assets/d2ff36d6-d530-4660-bcd6-b71f25133f28" />
 
 
 ## ก.1.2 ขั้นตอนการเปิดเครื่องและตั้งค่าครั้งแรก
