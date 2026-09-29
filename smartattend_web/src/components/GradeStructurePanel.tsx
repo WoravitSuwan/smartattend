@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  ChevronDown, ChevronRight, Copy, FileStack, GripVertical, Loader2, Plus, Save, Trash2,
+  ChevronDown, ChevronRight, Copy, FileStack, HelpCircle, Loader2, Plus, Save, Trash2, X,
 } from 'lucide-react';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import AttendanceCreditPreview from '@/components/AttendanceCreditPreview';
@@ -22,6 +22,15 @@ import { useAuth } from '@/lib/auth-context';
 interface Row extends ComponentDraft { key: string }
 
 const KINDS = Object.entries(componentKinds) as [string, string][];
+
+/** ป้ายสั้นสำหรับแถวย่อ ป้ายเต็มยาวเกินกว่าจะใส่ในบรรทัดเดียวบนจอ 390px */
+const calcModeShort: Record<CalcMode, string> = {
+  proportional: 'ตามสัดส่วน',
+  weighted_items: 'ถ่วงน้ำหนักย่อย',
+};
+
+/** กางอยู่หรือไม่ — แยกเป็นฟังก์ชันเพื่อให้อ่านง่ายใน JSX ที่ซ้อนหลายชั้น */
+const open2 = (openKey: string | null, key: string) => openKey === key;
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -60,6 +69,11 @@ const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   /** หมวดที่กางรายการคะแนนอยู่ */
   const [openItems, setOpenItems] = useState<Record<string, boolean>>({});
+  /** หมวดที่กางรายละเอียดอยู่ — กางได้ทีละหมวดเพื่อไม่ให้หน้ายาวเกินไป
+   *  ของเดิมกางทุกหมวดพร้อมกัน 5 หมวดต้องเลื่อนจอหลายหน้ากว่าจะถึงหมวดสุดท้าย */
+  const [openRow, setOpenRow] = useState<string | null>(null);
+  /** คำอธิบายวิธีคิดคะแนนที่กำลังเปิดอยู่ — ย้ายออกจากทุกกล่องมาไว้ที่เดียว */
+  const [helpFor, setHelpFor] = useState<CalcMode | null>(null);
 
   const [templates, setTemplates] = useState<StructureTemplate[]>([]);
   const [otherCourses, setOtherCourses] = useState<{ id: string; code: string; name: string }[]>([]);
@@ -211,7 +225,10 @@ const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
 
   return (
     <div className="bg-card rounded-2xl p-4 shadow-card space-y-3">
-      <div className="flex items-start justify-between gap-2">
+      {/* แถบสรุปน้ำหนักรวมติดอยู่ด้านบนตลอดที่เลื่อนจอ จะได้รู้ว่าครบ 100% หรือยัง
+          โดยไม่ต้องเลื่อนกลับขึ้นไป · -mx-4/px-4 เพื่อให้พื้นหลังเต็มความกว้างการ์ด */}
+      <div className="sticky top-0 z-10 bg-card -mx-4 px-4 -mt-4 pt-4 pb-2
+                      flex items-start justify-between gap-2 border-b border-border">
         <div>
           <p className="text-xs font-semibold text-foreground">
             โครงสร้างคะแนน · น้ำหนักรวม {totalWeight}%
@@ -245,9 +262,34 @@ const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
               const itemWeightBad = r.calc_mode === 'weighted_items'
                 && its.length > 0 && !itemWeightsComplete(its);
               return (
-                <div key={r.key} className="rounded-xl border border-border p-2.5 space-y-2">
+                <div key={r.key} className="rounded-xl border border-border overflow-hidden">
+                  {/* ── แถวย่อ: เห็นทุกหมวดในหน้าเดียว กดจึงกางแก้ไข ── */}
+                  <button type="button"
+                    onClick={() => setOpenRow(o => (o === r.key ? null : r.key))}
+                    className="w-full flex items-center gap-2 p-2.5 text-left">
+                    {open2(openRow, r.key)
+                      ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-xs font-medium text-foreground truncate">
+                        {r.name.trim() || 'หมวดใหม่ (ยังไม่ใส่ชื่อ)'}
+                      </span>
+                      <span className={`block text-[10px] truncate ${
+                        itemWeightBad ? 'text-destructive' : 'text-muted-foreground'
+                      }`}>
+                        {r.weight_percent}% · {its.length} รายการ · {calcModeShort[r.calc_mode]}
+                        {itemWeightBad && ' · น้ำหนักย่อยยังไม่ครบ 100%'}
+                      </span>
+                    </span>
+                    <span className="p-1 rounded-lg shrink-0" role="button" tabIndex={-1}
+                      onClick={e => { e.stopPropagation(); removeRow(r.key); }}>
+                      <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                    </span>
+                  </button>
+
+                  {open2(openRow, r.key) && (
+                  <div className="px-2.5 pb-2.5 space-y-2 border-t border-border pt-2.5">
                   <div className="flex items-center gap-2">
-                    <GripVertical className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                     <input value={r.name} onChange={e => setRow(r.key, { name: e.target.value })}
                       placeholder="ชื่อหมวด เช่น LABs"
                       className="flex-1 min-w-0 px-2 py-1.5 rounded-lg bg-muted text-xs text-foreground outline-none" />
@@ -257,9 +299,6 @@ const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
                         className="w-16 px-2 py-1.5 rounded-lg bg-muted text-xs text-foreground text-center outline-none" />
                       <span className="text-[10px] text-muted-foreground">%</span>
                     </div>
-                    <button onClick={() => removeRow(r.key)} className="p-1 rounded-lg hover:bg-muted shrink-0">
-                      <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                    </button>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
@@ -275,15 +314,20 @@ const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
                     </select>
                   </div>
 
-                  <select value={r.calc_mode}
-                    onChange={e => setRow(r.key, { calc_mode: e.target.value as CalcMode })}
-                    className="w-full px-2 py-1.5 rounded-lg bg-muted text-[11px] text-foreground outline-none">
-                    {Object.entries(calcModeLabels).map(([k, label]) =>
-                      <option key={k} value={k}>วิธีคิดคะแนน: {label}</option>)}
-                  </select>
-                  <p className="text-[10px] text-muted-foreground leading-relaxed">
-                    {calcModeHelp[r.calc_mode]}
-                  </p>
+                  {/* คำอธิบายยาวย้ายไปอยู่หลังเครื่องหมายคำถาม ไม่พิมพ์ซ้ำทุกกล่อง */}
+                  <div className="flex items-center gap-1.5">
+                    <select value={r.calc_mode}
+                      onChange={e => setRow(r.key, { calc_mode: e.target.value as CalcMode })}
+                      className="flex-1 min-w-0 px-2 py-1.5 rounded-lg bg-muted text-[11px] text-foreground outline-none">
+                      {Object.entries(calcModeLabels).map(([k, label]) =>
+                        <option key={k} value={k}>วิธีคิดคะแนน: {label}</option>)}
+                    </select>
+                    <button type="button" onClick={() => setHelpFor(r.calc_mode)}
+                      aria-label={`คำอธิบายวิธีคิดคะแนนแบบ ${calcModeLabels[r.calc_mode]}`}
+                      className="p-1 rounded-lg hover:bg-muted shrink-0">
+                      <HelpCircle className="w-3.5 h-3.5 text-muted-foreground" />
+                    </button>
+                  </div>
 
                   {/* จำนวนงานที่วางแผนไว้ — ใช้กับโหมดตามสัดส่วนเท่านั้น
                       โหมดถ่วงน้ำหนักรายการย่อยบังคับให้น้ำหนักย่อยรวม 100 อยู่แล้ว
@@ -384,7 +428,9 @@ const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
                     </div>
                   )}
 
-                  {/* ปรับเกณฑ์แล้วเห็นผลกับนักศึกษาจริงทันที (ข้อ 3.4) */}
+                  {/* ตารางตัวอย่างคะแนนเข้าเรียนแสดงเฉพาะตอนที่หมวดนี้กางอยู่
+                      ซึ่งเป็นจริงเสมอในบล็อกนี้ ทำให้ไม่ยิง RPC ของทุกหมวดพร้อมกัน
+                      ตอนเปิดหน้าอย่างที่เคยเป็น */}
                   {r.score_mode === 'auto_attendance' && r.id && (
                     <AttendanceCreditPreview componentId={r.id} credits={{
                       on_time: r.credit_on_time ?? 1,
@@ -392,6 +438,8 @@ const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
                       excused: r.credit_excused ?? 1,
                       absent: r.credit_absent ?? 0,
                     }} />
+                  )}
+                  </div>
                   )}
                 </div>
               );
@@ -448,6 +496,31 @@ const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
             </div>
           )}
         </>
+      )}
+
+      {/* คำอธิบายวิธีคิดคะแนน — มีที่เดียว เปิดจากเครื่องหมายคำถามของหมวดไหนก็ได้
+          ของเดิมพิมพ์ข้อความยาวนี้ซ้ำในทุกกล่อง ทำให้หน้ายาวขึ้นเท่าจำนวนหมวด */}
+      {helpFor && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center
+                        bg-black/40 p-4" onClick={() => setHelpFor(null)}>
+          <div className="w-full max-w-sm bg-card rounded-2xl p-4 shadow-float space-y-2"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm font-bold text-foreground">
+                {calcModeLabels[helpFor]}
+              </p>
+              <button onClick={() => setHelpFor(null)} aria-label="ปิด"
+                className="p-1 rounded-lg hover:bg-muted shrink-0">
+                <X className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </div>
+            <p className="text-xs text-foreground/80 leading-relaxed">{calcModeHelp[helpFor]}</p>
+            <button onClick={() => setHelpFor(null)}
+              className="w-full py-2 rounded-xl bg-muted text-xs font-semibold text-foreground">
+              เข้าใจแล้ว
+            </button>
+          </div>
+        </div>
       )}
 
       <ConfirmDialog
