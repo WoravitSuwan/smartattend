@@ -2,6 +2,12 @@
 # ติดตั้ง SmartAttend บน Raspberry Pi OS (64-bit, Bookworm)
 set -e
 
+# ชื่อไฟล์ systemd unit ประกาศไว้ที่เดียว เพื่อไม่ให้พิมพ์ไม่ตรงกันระหว่างสคริปต์
+# กับเอกสาร ซึ่งเคยเป็นปัญหามาแล้ว เอกสารและภาคผนวก ก ของเล่มเคยเขียนว่า
+# smartattend-display.service ทั้งที่ไฟล์จริงในโค้ดชื่อ smartattend.service
+# ชื่อที่ถูกต้องคือชื่อไฟล์จริง
+SERVICE_NAME="smartattend.service"
+
 echo "════════════════════════════════════════════"
 echo " ติดตั้ง SmartAttend สำหรับ Raspberry Pi"
 echo "════════════════════════════════════════════"
@@ -44,3 +50,22 @@ echo "  1. cp .env.example .env  แล้วแก้ค่าให้ถู�
 echo "  2. source .venv/bin/activate"
 echo "  3. python camera.py        # ตรวจว่าระบบเห็นกล้องหรือยัง"
 echo "  4. python pi_agent.py      # เริ่มใช้งานจริง"
+echo ""
+echo "──────────────────────────────────────────────"
+echo " ตั้งเวลาให้ถูกต้องก่อน (Pi ไม่มีนาฬิกาสำรอง)"
+echo "──────────────────────────────────────────────"
+echo "  sudo timedatectl set-timezone Asia/Bangkok"
+echo "  sudo timedatectl set-ntp true"
+echo "  sudo systemctl enable systemd-time-wait-sync"
+echo "  timedatectl                # ต้องได้ System clock synchronized: yes"
+echo ""
+echo "──────────────────────────────────────────────"
+echo " ตั้งให้รันอัตโนมัติเมื่อเปิดเครื่อง"
+echo "──────────────────────────────────────────────"
+echo " สคริปต์นี้ไม่ติดตั้ง systemd unit ให้ เพราะต้องใช้ sudo"
+echo ""
+echo "   sudo cp ${SERVICE_NAME} /etc/systemd/system/"
+echo "   sudo systemctl daemon-reload"
+echo "   sudo systemctl enable --now ${SERVICE_NAME}"
+echo "   systemctl status ${SERVICE_NAME}"
+echo "   journalctl -u ${SERVICE_NAME} -f"
