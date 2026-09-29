@@ -1,6 +1,7 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Users, Database, Brain, LogOut, Shield, BookOpen, ScrollText, History, TrendingUp, Building2 } from 'lucide-react';
+import { LayoutDashboard, Users, Database, Brain, LogOut, Shield, BookOpen, ScrollText, History, TrendingUp, Building2, MoreHorizontal } from 'lucide-react';
+import MoreMenuSheet, { type MoreMenuGroup } from './MoreMenuSheet';
 import { useAuth } from '@/lib/auth-context';
 import { useViewMode } from '@/lib/view-mode-context';
 import ViewModeToggle from './ViewModeToggle';
@@ -20,12 +21,48 @@ const menu = [
   { to: '/admin/logs', label: 'Audit Log', icon: ScrollText },
 ];
 
+/** สี่แท็บที่ใช้บ่อยที่สุดของผู้ดูแลระบบ ที่เหลือย้ายไปอยู่ในแผ่น "เพิ่มเติม"
+ *  แถบล่างบนจอ 390px ใส่ได้ห้าช่อง ช่องละ 78px โดยตัวหนังสือยังไม่เล็กกว่า 11px */
+const adminBottomTabs = [
+  { to: '/admin', label: 'ภาพรวม', icon: LayoutDashboard },
+  { to: '/admin/users', label: 'ผู้ใช้', icon: Users },
+  { to: '/admin/courses', label: 'รายวิชา', icon: BookOpen },
+  { to: '/admin/datasets', label: 'ใบหน้า', icon: Database },
+];
+
+const adminMoreGroups: MoreMenuGroup[] = [
+  {
+    title: 'ผู้ใช้และรายวิชา',
+    items: [
+      { path: '/admin/course-overview', label: 'ภาพรวมวิชาทั้งมหาวิทยาลัย', icon: Building2 },
+    ],
+  },
+  {
+    title: 'การฝึกแบบจำลอง',
+    items: [
+      { path: '/admin/training', label: 'เทรนโมเดล', icon: Brain },
+      { path: '/admin/training-history', label: 'ประวัติเทรน', icon: History },
+      { path: '/admin/analytics', label: 'กราฟเทรน', icon: TrendingUp },
+    ],
+  },
+  {
+    title: 'การตรวจสอบระบบ',
+    items: [
+      { path: '/admin/logs', label: 'บันทึกการใช้งาน (Audit Log)', icon: ScrollText },
+    ],
+  },
+];
+
+/** เส้นทางที่อยู่ในแผ่นเพิ่มเติม ใช้ไฮไลต์แท็บ "เพิ่มเติม" เมื่ออยู่ในหน้าเหล่านั้น */
+const adminMorePaths = adminMoreGroups.flatMap(g => g.items.map(i => i.path));
+
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const { logout, user } = useAuth();
   const { isMobileView } = useViewMode();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const handleLogout = () => { logout(); navigate('/'); };
 
@@ -51,19 +88,37 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         </header>
         <TrainingStatusBanner />
         <main className="flex-1 pb-20">{children}</main>
+        {/* แถบล่าง 5 ช่องพอดีจอ ไม่มีการเลื่อนแนวนอน
+            ของเดิมยัด 9 แท็บแล้วใช้ overflow-x-auto ตัวหนังสือเล็กจนอ่านไม่ออก
+            และผู้ใช้ไม่รู้ว่ายังมีแท็บซ่อนอยู่ทางขวา */}
         <nav className="fixed bottom-0 inset-x-0 bg-card/95 backdrop-blur-xl border-t border-border safe-bottom z-30">
-          <div className="flex overflow-x-auto no-scrollbar">
-            {menu.map(m => {
+          <div className="grid grid-cols-5">
+            {adminBottomTabs.map(m => {
               const active = pathname === m.to;
               return (
-                <NavLink key={m.to} to={m.to} className="flex flex-col items-center gap-1 py-2.5 px-4 min-w-[72px] shrink-0">
-                  <m.icon className={`w-5 h-5 ${active ? 'text-primary' : 'text-muted-foreground'}`} />
-                  <span className={`text-[10px] font-medium whitespace-nowrap ${active ? 'text-primary' : 'text-muted-foreground'}`}>{m.label}</span>
+                <NavLink key={m.to} to={m.to}
+                  className="flex flex-col items-center gap-1 py-2.5 px-1 min-w-0">
+                  <m.icon className={`w-5 h-5 shrink-0 ${active ? 'text-primary' : 'text-muted-foreground'}`} />
+                  <span className={`text-[11px] font-medium leading-none truncate max-w-full ${
+                    active ? 'text-primary' : 'text-muted-foreground'
+                  }`}>{m.label}</span>
                 </NavLink>
               );
             })}
+            <button onClick={() => setMoreOpen(true)}
+              className="flex flex-col items-center gap-1 py-2.5 px-1 min-w-0">
+              <MoreHorizontal className={`w-5 h-5 shrink-0 ${
+                adminMorePaths.includes(pathname) || moreOpen ? 'text-primary' : 'text-muted-foreground'
+              }`} />
+              <span className={`text-[11px] font-medium leading-none truncate max-w-full ${
+                adminMorePaths.includes(pathname) || moreOpen ? 'text-primary' : 'text-muted-foreground'
+              }`}>เพิ่มเติม</span>
+            </button>
           </div>
         </nav>
+
+        <MoreMenuSheet open={moreOpen} groups={adminMoreGroups}
+          currentPath={pathname} onClose={() => setMoreOpen(false)} />
       </div>
     );
   }

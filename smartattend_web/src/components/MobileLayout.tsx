@@ -3,7 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth-context';
 import { useTheme } from '@/lib/theme-context';
 import { useNotifications } from '@/lib/notification-context';
-import { Home, BookOpen, User, ClipboardList, LogOut, Sun, Moon, FileText, Bell, X, CheckCheck, CalendarOff, Upload, Users, Camera, ShieldCheck, Trash2, BellOff } from 'lucide-react';
+import { Home, BookOpen, User, ClipboardList, LogOut, Sun, Moon, FileText, Bell, X, CheckCheck, CalendarOff, Upload, Users, Camera, ShieldCheck, Trash2, BellOff, MoreHorizontal } from 'lucide-react';
+import MoreMenuSheet, { type MoreMenuGroup } from '@/components/MoreMenuSheet';
 import { useViewMode } from '@/lib/view-mode-context';
 import ViewModeToggle from '@/components/ViewModeToggle';
 import rmutlCrest from '@/assets/rmutl-crest.png';
@@ -15,21 +16,67 @@ interface MobileLayoutProps {
 }
 
 const studentTabs = [
-  { path: '/student', icon: Home, label: 'Home' },
-  { path: '/student/courses', icon: BookOpen, label: 'Courses' },
+  { path: '/student', icon: Home, label: 'หน้าแรก' },
+  { path: '/student/courses', icon: BookOpen, label: 'รายวิชา' },
   { path: '/student/assignments', icon: FileText, label: 'งาน' },
   { path: '/student/leaves', icon: CalendarOff, label: 'ลาเรียน' },
   { path: '/student/my-status', icon: ShieldCheck, label: 'สถานะ' },
-  { path: '/student/profile', icon: User, label: 'Profile' },
+  { path: '/student/profile', icon: User, label: 'โปรไฟล์' },
+];
+
+/** สี่แท็บที่ใช้บ่อยที่สุด ที่เหลือย้ายไปอยู่ในแผ่น "เพิ่มเติม"
+ *  ของเดิมมีหกแท็บ บนจอ 390px จึงเหลือช่องละ 65px ตัวหนังสือถูกบีบจนอ่านยาก */
+const studentBottomTabs = studentTabs.slice(0, 4);
+
+const studentMoreGroups: MoreMenuGroup[] = [
+  {
+    title: 'สถานะของฉัน',
+    items: [
+      { path: '/student/my-status', label: 'สถานะการลงทะเบียนใบหน้า', icon: ShieldCheck },
+      { path: '/student/history', label: 'ประวัติการเข้าเรียน', icon: ClipboardList },
+    ],
+  },
+  {
+    title: 'บัญชีผู้ใช้',
+    items: [
+      { path: '/student/profile', label: 'โปรไฟล์', icon: User },
+    ],
+  },
+];
+
+const instructorMoreGroups: MoreMenuGroup[] = [
+  {
+    title: 'รายวิชาและรายชื่อ',
+    items: [
+      { path: '/instructor/import-roster', label: 'Import รายชื่อนักศึกษา', icon: Upload },
+      { path: '/instructor/roster', label: 'รายชื่อในวิชา', icon: Users },
+    ],
+  },
+  {
+    title: 'การเช็คชื่อ',
+    items: [
+      { path: '/instructor/class-test', label: 'เช็คชื่อเข้าเรียน', icon: Camera },
+    ],
+  },
+  {
+    title: 'บัญชีผู้ใช้',
+    items: [
+      { path: '/instructor/profile', label: 'โปรไฟล์', icon: User },
+    ],
+  },
 ];
 
 const instructorTabs = [
-  { path: '/instructor', icon: Home, label: 'Home' },
-  { path: '/instructor/courses', icon: BookOpen, label: 'Courses' },
-  { path: '/instructor/attendance', icon: ClipboardList, label: 'Attend' },
+  { path: '/instructor', icon: Home, label: 'หน้าแรก' },
+  { path: '/instructor/courses', icon: BookOpen, label: 'รายวิชา' },
+  { path: '/instructor/attendance', icon: ClipboardList, label: 'เข้าเรียน' },
   { path: '/instructor/grading', icon: FileText, label: 'ตรวจงาน' },
-  { path: '/instructor/profile', icon: User, label: 'Profile' },
+  { path: '/instructor/profile', icon: User, label: 'โปรไฟล์' },
 ];
+
+/** อาจารย์ก็เหลือสี่แท็บ แล้วรวมโปรไฟล์กับเมนูอื่นไว้ในแผ่นเพิ่มเติม
+ *  ใช้หลักเดียวกันทุกบทบาทตามที่สเปกกำหนด */
+const instructorBottomTabs = instructorTabs.slice(0, 4);
 
 const instructorSidebarExtras = [
   { path: '/instructor/import-roster', icon: Upload, label: 'Import รายชื่อ' },
@@ -72,9 +119,16 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { isMobileView } = useViewMode();
-  const tabs = user?.role === 'instructor' ? instructorTabs : studentTabs;
-  const sidebarTabs = user?.role === 'instructor' ? [...instructorTabs, ...instructorSidebarExtras] : studentTabs;
+  const isInstructor = user?.role === 'instructor';
+  const tabs = isInstructor ? instructorBottomTabs : studentBottomTabs;
+  const moreGroups = isInstructor ? instructorMoreGroups : studentMoreGroups;
+  const morePaths = moreGroups.flatMap(g => g.items.map(i => i.path));
+  // เมนูด้านข้างบนจอใหญ่มีที่พอ จึงแสดงทุกรายการรวมที่อยู่ในแผ่นเพิ่มเติมด้วย
+  const sidebarTabs = isInstructor
+    ? [...instructorTabs, ...instructorSidebarExtras]
+    : [...studentTabs, { path: '/student/history', icon: ClipboardList, label: 'ประวัติเข้าเรียน' }];
   const [showNotifications, setShowNotifications] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const myNotifications = notifications
     .filter(n => n.userId === user?.id)
@@ -296,7 +350,8 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
 
         {/* Mobile bottom tabs — shown only under md */}
         <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-card/95 backdrop-blur-xl border-t border-border/50 safe-bottom shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.18)]">
-          <div className="flex items-center justify-around px-2 py-2 max-w-lg mx-auto">
+          {/* ห้าช่องพอดีจอ ไม่มีการเลื่อนแนวนอน ตัวหนังสือ 11px ไม่ถูกตัดคำ */}
+          <div className="grid grid-cols-5 px-1 py-2 max-w-lg mx-auto">
             {tabs.map((tab) => {
               const isActive = tab.path === location.pathname;
               const Icon = tab.icon;
@@ -304,7 +359,7 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
                 <button
                   key={tab.path}
                   onClick={() => navigate(tab.path)}
-                  className={`press relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl transition-colors ${
+                  className={`press relative flex flex-col items-center gap-0.5 px-1 py-1.5 rounded-2xl transition-colors min-w-0 ${
                     isActive ? 'text-primary' : 'text-muted-foreground'
                   }`}
                 >
@@ -312,13 +367,23 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
                     <motion.div layoutId="tab-indicator-resp"
                       className="absolute inset-0 rounded-2xl bg-primary/10 border border-primary/20" />
                   )}
-                  <Icon className="w-5 h-5 relative" />
-                  <span className="text-[10px] font-semibold relative">{tab.label}</span>
+                  <Icon className="w-5 h-5 relative shrink-0" />
+                  <span className="text-[11px] font-semibold relative leading-none whitespace-nowrap">{tab.label}</span>
                 </button>
               );
             })}
+            <button onClick={() => setMoreOpen(true)}
+              className={`press relative flex flex-col items-center gap-0.5 px-1 py-1.5 rounded-2xl transition-colors min-w-0 ${
+                morePaths.includes(location.pathname) || moreOpen ? 'text-primary' : 'text-muted-foreground'
+              }`}>
+              <MoreHorizontal className="w-5 h-5 relative shrink-0" />
+              <span className="text-[11px] font-semibold relative leading-none whitespace-nowrap">เพิ่มเติม</span>
+            </button>
           </div>
         </nav>
+
+        <MoreMenuSheet open={moreOpen} groups={moreGroups}
+          currentPath={location.pathname} onClose={() => setMoreOpen(false)} />
       </div>
     );
   }
@@ -430,7 +495,8 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
 
       {/* Bottom Tab Bar */}
       <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-lg z-30 bg-card/95 backdrop-blur-xl border-t border-border/50 safe-bottom shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.18)]">
-        <div className="flex items-center justify-around px-2 py-2">
+        {/* ห้าช่องพอดีจอ ไม่มีการเลื่อนแนวนอน ตัวหนังสือ 11px ไม่ถูกตัดคำ */}
+        <div className="grid grid-cols-5 px-1 py-2">
           {tabs.map((tab) => {
             const isActive = tab.path === location.pathname;
             const Icon = tab.icon;
@@ -438,7 +504,7 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
               <button
                 key={tab.path}
                 onClick={() => navigate(tab.path)}
-                className={`press relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl transition-colors ${
+                className={`press relative flex flex-col items-center gap-0.5 px-1 py-1.5 rounded-2xl transition-colors min-w-0 ${
                   isActive ? 'text-primary' : 'text-muted-foreground'
                 }`}
               >
@@ -448,13 +514,23 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
                     className="absolute inset-0 rounded-2xl bg-primary/10 border border-primary/20"
                   />
                 )}
-                <Icon className="w-5 h-5 relative" />
-                <span className="text-[10px] font-semibold relative">{tab.label}</span>
+                <Icon className="w-5 h-5 relative shrink-0" />
+                <span className="text-[11px] font-semibold relative leading-none whitespace-nowrap">{tab.label}</span>
               </button>
             );
           })}
+          <button onClick={() => setMoreOpen(true)}
+            className={`press relative flex flex-col items-center gap-0.5 px-1 py-1.5 rounded-2xl transition-colors min-w-0 ${
+              morePaths.includes(location.pathname) || moreOpen ? 'text-primary' : 'text-muted-foreground'
+            }`}>
+            <MoreHorizontal className="w-5 h-5 relative shrink-0" />
+            <span className="text-[11px] font-semibold relative leading-none whitespace-nowrap">เพิ่มเติม</span>
+          </button>
         </div>
       </nav>
+
+      <MoreMenuSheet open={moreOpen} groups={moreGroups}
+        currentPath={location.pathname} onClose={() => setMoreOpen(false)} />
     </div>
   );
 };
