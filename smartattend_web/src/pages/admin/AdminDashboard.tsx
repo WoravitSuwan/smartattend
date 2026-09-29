@@ -111,12 +111,23 @@ export default function AdminDashboard() {
         <StatCard icon={Activity} label="คำขอเป็นอาจารย์" value={s?.pendingRequests ?? '—'} sub="รออนุมัติ" color="bg-warning" />
         <StatCard icon={ScanFace} label="ลงทะเบียนใบหน้าแล้ว" value={s?.faceRegistered ?? '—'} sub="คน" color="bg-success" />
         <StatCard icon={ScanFace} label="ยังไม่ลงทะเบียนใบหน้า" value={s?.faceMissing ?? '—'} sub="คน" color="bg-destructive" />
+        {/* แยกสามสถานะให้ชัด ของเดิมรวม "ไม่เคยเชื่อมต่อ" กับ "เคยเชื่อมแล้วหลุด"
+            เป็นข้อความเดียวกันว่ารอสัญญาณ ซึ่งไม่ตรงความจริงในกรณีหลัง */}
         <StatCard
           icon={Cpu}
           label="อุปกรณ์ Raspberry Pi"
-          value={onlineDevices.length > 0 ? `เชื่อมต่ออยู่ ${onlineDevices.length} เครื่อง` : 'ยังไม่เชื่อมต่อ'}
-          sub={onlineDevices.length > 0 ? undefined : 'รอสัญญาณจาก pi_agent.py'}
-          color={onlineDevices.length > 0 ? 'bg-success' : 'bg-muted'}
+          value={onlineDevices.length > 0
+            ? `เชื่อมต่ออยู่ ${onlineDevices.length} เครื่อง`
+            : devices.length > 0 ? `ออฟไลน์ ${devices.length} เครื่อง` : 'ยังไม่เคยเชื่อมต่อ'}
+          sub={onlineDevices.length > 0
+            ? undefined
+            : devices.length > 0
+              ? `เห็นล่าสุด ${new Date(
+                  Math.max(...devices.map(d => new Date(d.seen_at).getTime())),
+                ).toLocaleTimeString('th-TH')}`
+              : 'ยังไม่เคยมีอุปกรณ์ส่งสัญญาณเข้ามา'}
+          color={onlineDevices.length > 0
+            ? 'bg-success' : devices.length > 0 ? 'bg-warning' : 'bg-muted'}
         />
       </div>
 
@@ -127,9 +138,23 @@ export default function AdminDashboard() {
             <h2 className="text-base font-bold font-display text-foreground">อุปกรณ์ Raspberry Pi</h2>
           </div>
           {devices.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              ยังไม่เคยได้รับสัญญาณจากอุปกรณ์ใด — ตรวจสอบว่า pi_agent.py กำลังทำงานอยู่และตั้งค่า .env ถูกต้อง
-            </p>
+            <div className="text-xs text-muted-foreground space-y-1.5">
+              <p>ยังไม่เคยได้รับสัญญาณจากอุปกรณ์ใดเลย</p>
+              <p className="leading-relaxed">
+                ฟังก์ชันนี้พร้อมใช้งานแล้วทั้งสองฝั่ง อุปกรณ์ส่งสัญญาณทุก 4 วินาที
+                ขณะที่ <code className="text-[10px]">pi_agent.py</code> ทำงานอยู่
+                ถ้ายังไม่ขึ้นอะไรให้ตรวจสามข้อตามลำดับ
+              </p>
+              <ol className="list-decimal list-inside space-y-0.5 leading-relaxed">
+                <li><code className="text-[10px]">pi_agent.py</code> กำลังทำงานอยู่จริง
+                  (<code className="text-[10px]">systemctl status smartattend.service</code>)</li>
+                <li>ไฟล์ <code className="text-[10px]">.env</code> บนอุปกรณ์มี
+                  <code className="text-[10px]"> SUPABASE_URL</code>,
+                  <code className="text-[10px]"> SUPABASE_SERVICE_KEY</code> และ
+                  <code className="text-[10px]"> DEVICE_CODE</code> ครบ</li>
+                <li>อุปกรณ์ออกอินเทอร์เน็ตได้ ไม่ติด captive portal ของเครือข่าย</li>
+              </ol>
+            </div>
           ) : (
             <div className="space-y-2">
               {devices.map(d => {
