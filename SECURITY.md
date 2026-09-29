@@ -74,8 +74,19 @@ Raspberry Pi ไม่มีนาฬิกาสำรอง (RTC) ถ้าบ
 
 ## ไฟล์ .env ที่เคยขึ้น repo
 
-`smartattend_web/.env` ถูก commit ไว้ก่อนที่จะมีกฎ `.gitignore` จึงยังถูกติดตามอยู่
-ในไฟล์มี `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` และ `VITE_SUPABASE_PROJECT_ID`
+**สถานะปัจจุบัน** `smartattend_web/.env` ถูกถอดออกจากการติดตามแล้ว
+(`git rm --cached`) และ `.gitignore` ที่รากโปรเจกต์กัน `.env` กับ `.env.*`
+ทุกตำแหน่งในโปรเจกต์แล้ว ไฟล์ที่ยังถูกติดตามมีแต่ `.env.example` ซึ่งมีแต่ตัวยึดตำแหน่ง
+
+**แต่ค่ายังอยู่ในประวัติ** ตรวจ git history แล้วพบสอง commit ที่เพิ่มไฟล์นี้เข้ามา
+
+| commit | วันที่ | สิ่งที่อยู่ในไฟล์ |
+|---|---|---|
+| `784eda8` | 2026-09-17 | `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_SUPABASE_PROJECT_ID` |
+| `d4509d1` | 2026-09-17 | ค่าชุดเดียวกัน |
+
+ตรวจแล้วว่า **ไม่มี service role key และไม่มีคีย์รูปแบบ JWT หลุดไปด้วย**
+สิ่งที่หลุดคือ URL โปรเจกต์ (จึงรู้ project ref) กับ publishable key
 
 ค่าทั้งสามนี้ **ไม่ใช่ความลับโดยธรรมชาติ** — ตัวแปร `VITE_*` ถูกฝังลงไฟล์ JavaScript
 ที่ผู้ใช้ทุกคนดาวน์โหลด ใครเปิด DevTools ก็เห็น การคุ้มครองข้อมูลจริงมาจากนโยบาย RLS
