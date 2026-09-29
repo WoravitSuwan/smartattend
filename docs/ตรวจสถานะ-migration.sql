@@ -83,9 +83,17 @@ WITH checks(ลำดับ, migration, สิ่งที่ตรวจ, ม�
                 WHERE n.nspname = 'public' AND p.proname = 'publish_readiness')),
 
    (15, '20260928100000 component_items_rpc',
-        'ฟังก์ชัน save_component_items (ตัวล่าสุด)',
+        'ฟังก์ชัน save_component_items',
         EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-                WHERE n.nspname = 'public' AND p.proname = 'save_component_items'))
+                WHERE n.nspname = 'public' AND p.proname = 'save_component_items')),
+
+    -- ถ้าแถวนี้ขึ้น MISSING แปลว่าปุ่มบันทึกทุกปุ่มยังพังอยู่ด้วย
+    --   function public.has_role(uuid, app_role) does not exist
+   (16, '20260929100000 fix_log_audit_event_has_role',
+        'log_audit_event เรียก internal.has_role ไม่ใช่ public.has_role (ตัวล่าสุด)',
+        EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                WHERE n.nspname = 'public' AND p.proname = 'log_audit_event'
+                  AND p.prosrc LIKE '%internal.has_role(%'))
 )
 SELECT ลำดับ,
        migration,
@@ -95,6 +103,12 @@ FROM checks
 ORDER BY ลำดับ;
 
 -- ── สรุปบรรทัดเดียว ────────────────────────────────────────────────────────
--- ถ้าแถวสุดท้าย (save_component_items) ขึ้น MISSING แปลว่า migration ล่าสุด
--- ยังไม่ได้ push ตัวแก้รายการคะแนนในหน้าโครงสร้างคะแนนจะขึ้น error ว่า
--- ไม่พบฟังก์ชัน ให้รัน `supabase db push` ในโฟลเดอร์ smartattend_web
+-- แถวที่ 16 สำคัญที่สุด ถ้าขึ้น MISSING แปลว่าปุ่ม "บันทึก" ทุกปุ่มในระบบยังพังอยู่
+-- ด้วยข้อความ function public.has_role(uuid, app_role) does not exist
+-- เพราะ log_audit_event ซึ่งถูกเรียกจาก RPC ที่เขียนข้อมูลทุกตัว ยังชี้ไปที่ฟังก์ชัน
+-- ที่ถูกลบไปแล้ว
+--
+-- แถวที่ 15 ขึ้น MISSING แปลว่าตัวแก้รายการคะแนนในหน้าโครงสร้างคะแนนจะขึ้น
+-- error ว่าไม่พบฟังก์ชัน
+--
+-- ทั้งสองกรณีแก้ด้วยการรัน `supabase db push` ในโฟลเดอร์ smartattend_web
