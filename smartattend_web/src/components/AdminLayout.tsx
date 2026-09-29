@@ -69,9 +69,16 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }
 
   // Desktop view → sidebar
+  //
+  // ของเดิมใช้ min-h-screen กับตัวครอบ และ aside ไม่มีความสูงของตัวเอง
+  // เมนูจึงยืดตามความสูงของ "เนื้อหา" ไม่ใช่ของหน้าจอ หน้าที่เนื้อหายาวเมนูจะ
+  // เลื่อนหายไปกับเนื้อหา ส่วนหน้าที่เนื้อหาสั้นก็เหลือพื้นที่ว่างใต้เมนู
+  //
+  // แก้เป็น h-screen + overflow-hidden ที่ตัวครอบ แล้วให้ทั้ง aside และ main
+  // เลื่อนภายในตัวเอง เมนูจึงสูงเต็มจอเสมอไม่ว่าเนื้อหาจะยาวแค่ไหน
   return (
-    <div className="min-h-screen bg-background flex w-full">
-      <aside className="w-64 bg-sidebar border-r border-sidebar-border flex flex-col">
+    <div className="h-screen overflow-hidden bg-background flex w-full">
+      <aside className="w-64 h-full shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col">
         <div className="p-5 border-b border-sidebar-border flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center">
             <Shield className="w-5 h-5 text-primary-foreground" />
@@ -81,7 +88,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             <p className="text-[10px] text-muted-foreground">RMUTL SmartAttend</p>
           </div>
         </div>
-        <nav className="flex-1 p-3 space-y-1">
+        {/* flex-1 + overflow-y-auto: ถ้ารายการเมนูยาวเกินจอ ให้เลื่อนในเมนูเอง
+            โดยที่หัวเมนูกับบล็อกออกจากระบบยังอยู่กับที่ */}
+        <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1">
           {menu.map(m => {
             const active = pathname === m.to;
             return (
@@ -100,7 +109,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-        <div className="p-3 border-t border-sidebar-border">
+        {/* shrink-0 กันไม่ให้บล็อกนี้ถูกบีบเมื่อเมนูยาว จึงติดขอบล่างเสมอ */}
+        <div className="shrink-0 p-3 border-t border-sidebar-border">
           <div className="px-3 py-2 text-xs text-muted-foreground">
             <p className="font-medium text-sidebar-foreground">{user?.name}</p>
             <p className="text-[10px]">{user?.email}</p>
@@ -113,15 +123,17 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           </button>
         </div>
       </aside>
-      <div className="flex-1 flex flex-col">
-        <header className="h-14 border-b border-border bg-card/50 backdrop-blur-xl flex items-center justify-end gap-2 px-6">
+      <div className="flex-1 min-w-0 flex flex-col">
+        <header className="h-14 shrink-0 border-b border-border bg-card/50 backdrop-blur-xl flex items-center justify-end gap-2 px-6">
           <ViewModeToggle />
           <button onClick={toggleTheme} className="w-9 h-9 rounded-xl bg-muted flex items-center justify-center text-muted-foreground">
             {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
         </header>
         <TrainingStatusBanner />
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        {/* min-h-0 จำเป็นกับ flex child ที่ต้อง scroll ไม่งั้นมันจะยืดตามเนื้อหา
+            แทนที่จะเลื่อนภายใน */}
+        <main className="flex-1 min-h-0 overflow-y-auto">{children}</main>
       </div>
     </div>
   );

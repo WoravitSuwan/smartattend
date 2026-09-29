@@ -186,7 +186,9 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
             </div>
             <div className="gold-rule mt-3 rounded-full opacity-70 hidden lg:block" />
           </div>
-          <nav className="flex-1 py-3 px-2 lg:px-3 space-y-1 overflow-y-auto">
+          {/* min-h-0 จำเป็นกับ flex child ที่ต้อง scroll ไม่งั้นเมนูที่ยาวจะดัน
+              บล็อกปุ่มด้านล่างตกขอบจอแทนที่จะเลื่อนภายในเมนูเอง */}
+          <nav className="flex-1 min-h-0 py-3 px-2 lg:px-3 space-y-1 overflow-y-auto">
             {sidebarTabs.map((tab) => {
               const isActive = tab.path === location.pathname;
               const Icon = tab.icon;
@@ -205,7 +207,8 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
               );
             })}
           </nav>
-          <div className="px-2 lg:px-3 py-3 border-t border-border/50">
+          {/* shrink-0 ทำให้ปุ่มสามปุ่มติดขอบล่างเสมอ ไม่ถูกบีบเมื่อเมนูยาว */}
+          <div className="shrink-0 px-2 lg:px-3 py-3 border-t border-border/50">
             <div className="flex items-center gap-2 flex-col lg:flex-row">
               <div className="hidden lg:block"><ViewModeToggle /></div>
               <button onClick={toggleTheme} title="Theme" className="w-9 h-9 rounded-xl bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
