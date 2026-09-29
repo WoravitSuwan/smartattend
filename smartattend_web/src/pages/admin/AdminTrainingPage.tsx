@@ -661,7 +661,15 @@ const MetricCard = ({ label, value, accent }: { label: string; value: string; ac
   </div>
 );
 
-const Field = ({ label, value, onChange, min, max, step = 1, disabled }: any) => (
+const Field = ({ label, value, onChange, min, max, step = 1, disabled }: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  disabled?: boolean;
+}) => (
   <div>
     <label className="text-xs text-muted-foreground font-medium">{label}</label>
     <input type="number" value={value} onChange={e => onChange(Number(e.target.value))}

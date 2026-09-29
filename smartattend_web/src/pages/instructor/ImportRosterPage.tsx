@@ -30,7 +30,7 @@ const STUDENT_CODE_RE = /^\d{8,13}(-\d)?$/;
 const stripDash = (s: string) => s.replace(/-\d$/, '');
 const normalizeSpaces = (s: string) => s.replace(/\s+/g, ' ').trim();
 
-function parseWorkbook(raw: any[][]): ParseResult {
+function parseWorkbook(raw: unknown[][]): ParseResult {
   const rows = raw.map(r => r.map(c => String(c ?? '').trim()));
   const allCells = rows.flat();
 
@@ -114,7 +114,7 @@ export default function ImportRosterPage() {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array' });
       const sheet = wb.Sheets[wb.SheetNames[0]];
-      const raw = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, raw: false, defval: '' });
+      const raw = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: false, defval: '' });
       const p = parseWorkbook(raw);
       setParsed(p);
       if (!p.courseCode || !p.courseName) toast.warning('ไม่พบรหัส/ชื่อวิชาในไฟล์ กรุณาแก้ไขก่อนยืนยัน');

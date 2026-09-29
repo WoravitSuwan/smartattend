@@ -231,11 +231,17 @@ export default function StartClassTestPage() {
   };
 
   const activeCourse = courses.find(c => c.id === activeSession?.course_id);
-  const startedAtDate = activeSession ? new Date(activeSession.started_at) : null;
+  // new Date() สร้าง object ใหม่ทุก render ถ้าใส่ตรง ๆ ใน deps ของ useMemo
+  // ค่าที่ memo ไว้จะถูกคิดใหม่ทุกรอบ เท่ากับไม่ได้ memo อะไรเลย
+  // จึงอิงกับค่าพื้นฐาน (สตริงเวลาและจำนวนนาที) แทน
+  const startedAtIso = activeSession?.started_at ?? null;
+  const lateAfterMinutes = activeSession?.late_after_minutes ?? null;
+  const startedAtDate = useMemo(
+    () => (startedAtIso ? new Date(startedAtIso) : null), [startedAtIso]);
   const lateThreshold = useMemo(() => {
-    if (!startedAtDate || !activeSession) return null;
-    return new Date(startedAtDate.getTime() + activeSession.late_after_minutes * 60_000);
-  }, [startedAtDate, activeSession]);
+    if (!startedAtDate || lateAfterMinutes == null) return null;
+    return new Date(startedAtDate.getTime() + lateAfterMinutes * 60_000);
+  }, [startedAtDate, lateAfterMinutes]);
   const plannedEnd = activeSession?.planned_end_time ? new Date(activeSession.planned_end_time) : null;
   const remainingMs = plannedEnd ? plannedEnd.getTime() - now.getTime() : 0;
   const overtime = plannedEnd ? now.getTime() > plannedEnd.getTime() : false;

@@ -9,7 +9,7 @@ import ViewModeToggle from '@/components/ViewModeToggle';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/integrations/supabase/client';
 import { upsertMyRegStatus } from '@/lib/registration-status';
-import { augmentImage, normalizeOriginal } from '@/lib/dataset-store';
+import { augmentImage, normalizeOriginal, type FaceImageRow } from '@/lib/dataset-store';
 import { validateThaiFullName } from '@/lib/thai-name';
 
 const AUGMENT_PER_POSE = 9; // 1 original + 9 augmented = 10 per pose → 50 total
@@ -235,7 +235,7 @@ const RegisterPage = () => {
       const totalRows = POSES.length * (1 + AUGMENT_PER_POSE); // 50
       setProgress({ done: 0, total: totalRows + 1 });
 
-      const rows: any[] = [];
+      const rows: FaceImageRow[] = [];
       for (let i = 0; i < POSES.length; i++) {
         const p = POSES[i];
         const u = uploads[p.id]!;

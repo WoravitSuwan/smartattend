@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Users, Upload, CheckCircle2, Clock, AlertCircle, XCircle, CalendarDays, Trash2, Link2, Pencil, X, Search, Loader2 } from 'lucide-react';
+import { ArrowLeft, Users, Upload, CheckCircle2, Clock, AlertCircle, XCircle, CalendarDays, Trash2, Link2, Pencil, X, Search, Loader2, type LucideIcon } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import MobileLayout from '@/components/MobileLayout';
 import { supabase } from '@/integrations/supabase/client';
+import { db } from '@/integrations/supabase/untyped';
 import { useAuth } from '@/lib/auth-context';
 
 interface Course {
@@ -27,7 +28,7 @@ interface Enrollment {
 }
 interface ProfileHit { user_id: string; name: string | null; email: string | null; student_code: string | null; }
 
-const statusStyle: Record<Enrollment['status'], { label: string; cls: string; icon: any }> = {
+const statusStyle: Record<Enrollment['status'], { label: string; cls: string; icon: LucideIcon }> = {
   confirmed: { label: 'ยืนยันแล้ว', cls: 'bg-success/15 text-success border-success/30', icon: CheckCircle2 },
   pending: { label: 'รอยืนยัน', cls: 'bg-warning/15 text-warning border-warning/30', icon: Clock },
   unmatched: { label: 'ไม่พบในระบบ', cls: 'bg-destructive/15 text-destructive border-destructive/30', icon: AlertCircle },
@@ -55,10 +56,10 @@ export default function CourseRosterPage() {
   const loadCourses = async () => {
     let data: Course[] | null = null;
     if (isAdminView) {
-      const res = await (supabase as any).from('courses').select('id, code, name, section, semester').eq('id', forcedCourseId);
+      const res = await db.from('courses').select('id, code, name, section, semester').eq('id', forcedCourseId);
       data = res.data as Course[] | null;
     } else if (user?.id) {
-      const res = await (supabase as any).from('courses').select('id, code, name, section, semester').eq('instructor_id', user.id).order('created_at', { ascending: false });
+      const res = await db.from('courses').select('id, code, name, section, semester').eq('instructor_id', user.id).order('created_at', { ascending: false });
       data = res.data as Course[] | null;
     }
     if (data) {
@@ -100,7 +101,7 @@ export default function CourseRosterPage() {
     if (!selectedId) { setRows([]); return; }
     let alive = true;
     const load = async () => {
-      const { data } = await (supabase as any)
+      const { data } = await db
         .from('course_enrollments')
         .select('id, course_id, student_id, student_code_raw, student_name_raw, status, confirmed_at, absent_count, attendance_blocked')
         .eq('course_id', selectedId)
@@ -139,7 +140,7 @@ export default function CourseRosterPage() {
 
   const deleteRow = async (r: Enrollment) => {
     if (!confirm(`ลบ ${r.student_code_raw} ${r.student_name_raw} ออกจากวิชานี้?`)) return;
-    const { error } = await (supabase as any).from('course_enrollments').delete().eq('id', r.id);
+    const { error } = await db.from('course_enrollments').delete().eq('id', r.id);
     if (error) toast.error(error.message); else toast.success('ลบแล้ว');
   };
 
@@ -147,8 +148,8 @@ export default function CourseRosterPage() {
     if (!selectedCourse) return;
     if (!confirm(`ลบวิชา ${selectedCourse.code} ${selectedCourse.name} ทั้งวิชา?\nรายชื่อนักศึกษาทั้งหมดในวิชานี้จะถูกลบตามไปด้วย การกระทำนี้ย้อนกลับไม่ได้`)) return;
     // Explicitly delete enrollments first in case FK is not cascading
-    await (supabase as any).from('course_enrollments').delete().eq('course_id', selectedCourse.id);
-    const { error } = await (supabase as any).from('courses').delete().eq('id', selectedCourse.id);
+    await db.from('course_enrollments').delete().eq('course_id', selectedCourse.id);
+    const { error } = await db.from('courses').delete().eq('id', selectedCourse.id);
     if (error) { toast.error(error.message); return; }
     toast.success('ลบวิชาแล้ว');
     setCourses(cs => cs.filter(c => c.id !== selectedCourse.id));
@@ -349,7 +350,10 @@ function ManualMatchDialog({ enrollment, onClose }: { enrollment: Enrollment; on
     } finally { setSearching(false); }
   };
 
-  useEffect(() => { search(); /* eslint-disable-next-line */ }, []);
+  // ค้นหาครั้งแรกตอนเปิดไดอะล็อกเท่านั้น
+  // ใส่ search ใน deps ไม่ได้ เพราะถูกสร้างใหม่ทุก render จะกลายเป็นวนไม่รู้จบ
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { search(); }, []);
 
   const pick = async (p: ProfileHit) => {
     setSaving(true);
@@ -415,7 +419,7 @@ function EditCourseDialog({ course, onClose, onSaved }: { course: Course; onClos
     if (!code.trim() || !name.trim()) { toast.error('กรุณากรอกรหัสและชื่อวิชา'); return; }
     setSaving(true);
     try {
-      const { data, error } = await (supabase as any).from('courses')
+      const { data, error } = await db.from('courses')
         .update({ code: code.trim(), name: name.trim(), section: section.trim(), semester: semester.trim() || null })
         .eq('id', course.id).select('id, code, name, section, semester').single();
       if (error) throw new Error(error.message);

@@ -55,15 +55,15 @@ export default function BulkImportStudentsModal({ courseId: initialCourseId, onC
     return { ok, err, total: rows.length };
   }, [rows]);
 
-  const readFile = async (file: File): Promise<any[][]> => {
+  const readFile = async (file: File): Promise<unknown[][]> => {
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: 'array' });
     const first = wb.SheetNames[0];
     const sheet = wb.Sheets[first];
-    return XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, raw: false, defval: '' });
+    return XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: false, defval: '' });
   };
 
-  const validate = (raw: any[][]): ParsedRow[] => {
+  const validate = (raw: unknown[][]): ParsedRow[] => {
     // Skip empty & find header
     const cleaned = raw.filter(r => r.some(c => String(c ?? '').trim() !== ''));
     if (cleaned.length === 0) return [];

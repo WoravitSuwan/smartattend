@@ -9,7 +9,7 @@ import {
   fetchMyRegStatus, getCurrentAuthUserId, upsertMyRegStatus,
   type RegistrationStatus,
 } from '@/lib/registration-status';
-import { augmentImage } from '@/lib/dataset-store';
+import { augmentImage, type FaceImageRow } from '@/lib/dataset-store';
 import { smartCropFace, warmUpFaceDetector } from '@/lib/face-crop';
 
 const REQUIRED_PHOTOS = 5;
@@ -109,7 +109,7 @@ export default function FaceRegistrationPage() {
       setProgress({ done: 1, total: totalRows + 1 });
 
       // Build 50 rows: for each of 5 photos → 1 normalized original + 9 augmented
-      const rows: any[] = [];
+      const rows: FaceImageRow[] = [];
       for (let i = 0; i < photos.length; i++) {
         const p = photos[i];
         const original = p.normalizedDataUrl;

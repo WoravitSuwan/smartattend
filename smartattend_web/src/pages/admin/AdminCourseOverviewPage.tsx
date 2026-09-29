@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronDown, ChevronRight, Building2, User, BookOpen, Search, Users } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { db } from '@/integrations/supabase/untyped';
 
 interface Instructor {
   user_id: string;
@@ -37,21 +37,21 @@ export default function AdminCourseOverviewPage() {
     let alive = true;
     (async () => {
       // 1) instructor user_ids
-      const { data: roles } = await (supabase as any)
+      const { data: roles } = await db
         .from('user_roles')
         .select('user_id')
         .eq('role', 'instructor');
-      const ids = (roles ?? []).map((r: any) => r.user_id);
+      const ids = (roles ?? []).map((r: { user_id: string }) => r.user_id);
       if (!alive) return;
       if (ids.length === 0) { setInstructors([]); setCourses([]); setEnrollments([]); setLoading(false); return; }
 
       const [{ data: profs }, { data: crs }] = await Promise.all([
-        (supabase as any).from('profiles').select('user_id, name, email, department, faculty').in('user_id', ids),
-        (supabase as any).from('courses').select('id, code, name, section, semester, instructor_id').in('instructor_id', ids),
+        db.from('profiles').select('user_id, name, email, department, faculty').in('user_id', ids),
+        db.from('courses').select('id, code, name, section, semester, instructor_id').in('instructor_id', ids),
       ]);
-      const courseIds = (crs ?? []).map((c: any) => c.id);
+      const courseIds = (crs ?? []).map((c: { id: string }) => c.id);
       const { data: enr } = courseIds.length
-        ? await (supabase as any).from('course_enrollments').select('course_id, status').in('course_id', courseIds)
+        ? await db.from('course_enrollments').select('course_id, status').in('course_id', courseIds)
         : { data: [] as EnrollRow[] };
 
       if (!alive) return;

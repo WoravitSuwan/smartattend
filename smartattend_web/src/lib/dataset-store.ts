@@ -13,6 +13,22 @@ export interface PoseSample {
   capturedAt: string;
 }
 
+/** หนึ่งแถวในตาราง face_images — ใช้ทั้งหน้าสมัครสมาชิกและหน้าลงทะเบียนใบหน้า
+ *  ตารางนี้ยังไม่อยู่ใน types.ts ที่ generate มา จึงประกาศรูปแบบไว้เองที่นี่ */
+export interface FaceImageRow {
+  user_id: string;
+  student_id: string;
+  student_code: string | null;
+  student_name: string;
+  pose: string;
+  pose_label: string;
+  kind: 'original' | 'augmented';
+  variant: number;
+  /** dataURL ของภาพ */
+  image_data: string;
+  captured_at: string;
+}
+
 export interface FaceDataset {
   studentId: string;         // internal user id
   studentCode?: string;      // "67543210064-1"
@@ -125,7 +141,6 @@ export async function augmentImage(src: string, count = 10, size = { w: 160, h: 
     ctx.translate(W / 2 + tx, H / 2 + ty);
     ctx.rotate(rot);
     ctx.scale(flip ? -scale : scale, scale);
-    // @ts-ignore filter is supported in modern browsers
     ctx.filter = `brightness(${brightness}) contrast(${contrast}) hue-rotate(${hue}deg) saturate(${saturate})`;
     ctx.drawImage(img, -W / 2, -H / 2, W, H);
     ctx.restore();
