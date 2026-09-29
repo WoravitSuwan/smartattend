@@ -47,6 +47,7 @@ export async function fetchComponents(courseId: string): Promise<GradeComponent[
     credit_late: Number(r.credit_late ?? 0.5),
     credit_excused: Number(r.credit_excused ?? 1),
     credit_absent: Number(r.credit_absent ?? 0),
+    planned_item_count: r.planned_item_count == null ? null : Number(r.planned_item_count),
   })) as GradeComponent[];
 }
 
@@ -78,6 +79,9 @@ export interface ComponentDraft {
   credit_late?: number;
   credit_excused?: number;
   credit_absent?: number;
+  /** ไม่ได้ส่งผ่าน save_grade_structure_v2 — บันทึกแยกด้วย saveplannedItemCount()
+   *  เก็บไว้ในร่างเพื่อให้หน้าจอถือค่าที่กำลังแก้อยู่ได้ */
+  planned_item_count?: number | null;
 }
 
 /**
@@ -195,4 +199,17 @@ export async function saveComponentItems(
   });
   if (error) return { result: null, error };
   return { result: data as unknown as SaveItemsResult, error: null };
+}
+
+/** ตั้งจำนวนงานที่วางแผนไว้ของหมวด ส่ง null เพื่อกลับไปคิดจากงานที่มีอยู่จริง
+ *
+ *  แยกจาก saveGradeStructure() โดยเจตนา — save_grade_structure_v2 เขียนเฉพาะ
+ *  คอลัมน์ที่มันรู้จัก การเพิ่มคอลัมน์เข้าไปในนั้นต้องคัดลอกโค้ดทั้งก้อนมาแก้
+ *  ซึ่งเสี่ยงกว่าการเพิ่ม RPC เล็ก ๆ ตัวเดียว
+ */
+export async function savePlannedItemCount(componentId: string, planned: number | null) {
+  return supabase.rpc('set_component_planned_count', {
+    _component_id: componentId,
+    _planned: planned ?? undefined,
+  });
 }

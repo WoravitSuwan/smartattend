@@ -1175,6 +1175,10 @@ export type Database = {
         Args: { _component_id: string; _student_id: string }
         Returns: Json
       }
+      set_component_planned_count: {
+        Args: { _component_id: string; _planned?: number }
+        Returns: undefined
+      }
       save_component_items: {
         Args: {
           _component_id: string

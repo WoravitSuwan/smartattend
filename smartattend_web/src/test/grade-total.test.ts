@@ -23,7 +23,7 @@ const comp = (
   id, course_id: 'c1', name: id, kind: 'other', weight_percent: weight,
   calc_mode: 'proportional', drop_lowest: 0, is_final_exam: false, score_mode: 'manual',
   credit_on_time: 1, credit_late: 0.5, credit_excused: 1, credit_absent: 0,
-  position: 0, ...extra,
+  planned_item_count: null, position: 0, ...extra,
 });
 
 const item = (id: string, componentId: string, max = 100): StructureItem => ({

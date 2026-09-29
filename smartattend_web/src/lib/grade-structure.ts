@@ -37,6 +37,9 @@ export interface GradeComponent {
   credit_excused: number;
   credit_absent: number;
   position: number;
+  /** จำนวนงานที่อาจารย์วางแผนจะมีในหมวดนี้ทั้งเทอม (null = คิดจากงานที่มีอยู่จริง)
+   *  ใช้กับโหมด proportional เท่านั้น */
+  planned_item_count: number | null;
 }
 
 export interface StructureItem {
@@ -64,11 +67,14 @@ export interface ComponentScore {
   droppedNames: string[];
   /** ชื่อรายการที่คะแนนเต็มใช้คำนวณไม่ได้ จึงถูกข้าม */
   invalidNames: string[];
+  /** จำนวนงานที่ใช้เป็นฐานของตัวหาร — ที่วางแผนไว้ถ้าตั้งไว้ ไม่งั้นที่มีอยู่จริง
+   *  หน้าจอใช้บอกว่า "ตรวจแล้ว 2 จาก 10 ชิ้นที่วางแผนไว้" */
+  countsToward: number;
 }
 
 const EMPTY: ComponentScore = {
   earned: 0, maxPoints: 0, gradedItems: 0, totalItems: 0, dropped: 0,
-  hasAnyScore: false, droppedNames: [], invalidNames: [],
+  hasAnyScore: false, droppedNames: [], invalidNames: [], countsToward: 0,
 };
 
 /**
@@ -83,7 +89,8 @@ const EMPTY: ComponentScore = {
  *   - ไม่ปัดเศษระหว่างคำนวณ ปัดเฉพาะตอนแสดงผล
  */
 export function componentScore(
-  component: Pick<GradeComponent, 'weight_percent' | 'calc_mode' | 'drop_lowest'>,
+  component: Pick<GradeComponent, 'weight_percent' | 'calc_mode' | 'drop_lowest'>
+    & Partial<Pick<GradeComponent, 'planned_item_count'>>,
   items: StructureItem[],
   scoreOf: (itemId: string) => number | null,
 ): ComponentScore {
@@ -107,9 +114,17 @@ export function componentScore(
       };
     });
 
+  /** จำนวนงานที่ใช้เป็นฐานของตัวหาร — ที่วางแผนไว้ หรือที่มีอยู่จริง
+   *  ใช้กับโหมด proportional เท่านั้น โหมด weighted_items น้ำหนักย่อยรวม 100
+   *  อยู่แล้ว ตัวหารจึงคงที่ ไม่ต้องประมาณ */
+  const plannedCount = component.calc_mode === 'weighted_items'
+    ? null
+    : (component.planned_item_count ?? null);
+  const countsToward = plannedCount ?? rows.length;
+
   const graded = rows.filter(r => r.ratio != null);
   if (graded.length === 0) {
-    return { ...EMPTY, totalItems: rows.length, invalidNames };
+    return { ...EMPTY, totalItems: rows.length, invalidNames, countsToward };
   }
 
   // ตัดรายการที่ต่ำสุด แต่ต้องเหลืออย่างน้อยหนึ่งรายการ
@@ -140,10 +155,22 @@ export function componentScore(
     const maxAll = kept.reduce((a, r) => a + r.max, 0);
     const maxGraded = keptGraded.reduce((a, r) => a + r.max, 0);
     const earnedRaw = keptGraded.reduce((a, r) => a + r.score!, 0);
+
     // ตัวหารของ earned คือคะแนนเต็มทั้งหมวด (หักรายการที่ถูก drop) ไม่ใช่
     // คะแนนเต็มของส่วนที่ตรวจแล้ว เพื่อให้ earned กับ maxPoints อยู่สเกลเดียวกัน
-    earned = maxAll > 0 ? (earnedRaw / maxAll) * w : 0;
-    maxPoints = maxAll > 0 ? (maxGraded / maxAll) * w : 0;
+    //
+    // ถ้าอาจารย์ระบุจำนวนงานที่วางแผนไว้ ตัวหารจะเป็นคะแนนเต็มที่ "คาดว่าจะมี"
+    // ประมาณจากคะแนนเต็มเฉลี่ยของงานที่มีอยู่ ป้องกันไม่ให้นักศึกษาเข้าใจว่า
+    // ได้คะแนนหมวดเต็มแล้วทั้งที่อาจารย์ยังจะโพสต์งานอีก
+    // ใช้ค่ามากกว่าเสมอ เพื่อไม่ให้ตัวหารหดลงต่ำกว่าความจริงเมื่องานเกินแผน
+    const avgMax = rows.length > 0
+      ? rows.reduce((a, r) => a + r.max, 0) / rows.length
+      : 0;
+    const expectedMax = plannedCount != null ? avgMax * plannedCount : 0;
+    const denom = Math.max(maxAll, expectedMax);
+
+    earned = denom > 0 ? (earnedRaw / denom) * w : 0;
+    maxPoints = denom > 0 ? (maxGraded / denom) * w : 0;
   }
 
   return {
@@ -152,7 +179,7 @@ export function componentScore(
     totalItems: rows.length,
     dropped: dropCount,
     hasAnyScore: true,
-    droppedNames, invalidNames,
+    droppedNames, invalidNames, countsToward,
   };
 }
 

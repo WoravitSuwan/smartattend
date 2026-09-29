@@ -182,37 +182,62 @@ const GradesPage = () => {
                   const its = r.items
                     .filter(it => it.component_id === c.component_id)
                     .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+                  // แถบความคืบหน้าเทียบกับน้ำหนักหมวด ไม่ใช่เทียบส่วนที่ตรวจแล้ว
+                  // เพื่อให้เห็นว่ายังเหลืออีกเท่าไรกว่าจะเต็มหมวด
                   const pct = c.masked || c.weight <= 0
                     ? 0
                     : Math.min(100, (c.earned / c.weight) * 100);
+                  // ตรวจครบทุกงานที่คาดไว้แล้วหรือยัง — ถ้ายัง คะแนนยังเปลี่ยนได้
+                  const done = c.graded_items >= c.counts_toward;
                   return (
                     <div key={c.component_id}>
                       <button
                         onClick={() => setOpen(o => ({ ...o, [key]: !o[key] }))}
                         disabled={its.length === 0}
-                        className="w-full flex items-center gap-2 text-left">
+                        className="w-full flex items-start gap-2 text-left">
                         {its.length > 0
-                          ? (open[key] ? <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
-                                       : <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />)
+                          ? (open[key] ? <ChevronDown className="w-3 h-3 mt-1 text-muted-foreground shrink-0" />
+                                       : <ChevronRight className="w-3 h-3 mt-1 text-muted-foreground shrink-0" />)
                           : <span className="w-3 shrink-0" />}
-                        <span className="text-xs text-muted-foreground w-24 truncate"
-                          title={`น้ำหนัก ${c.weight}%`}>
-                          {c.name}
-                        </span>
-                        <span className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                          <motion.span initial={{ width: 0 }}
-                            animate={{ width: `${pct}%` }}
-                            transition={{ delay: i * 0.06 + 0.25, duration: 0.5 }}
-                            className="block h-full rounded-full gradient-primary" />
-                        </span>
-                        <span className="text-xs font-semibold text-foreground w-20 text-right shrink-0">
-                          {c.masked ? (
-                            <span className="inline-flex items-center gap-1 text-muted-foreground font-normal">
-                              <Lock className="w-3 h-3" /> {c.weight}%
+                        <span className="flex-1 min-w-0">
+                          <span className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground flex-1 min-w-0 truncate"
+                              title={`น้ำหนัก ${c.weight}%`}>
+                              {c.name}
                             </span>
-                          ) : c.has_any_score
-                            ? `${c.earned.toFixed(1)}/${round1(c.max_points)}`
-                            : '—'}
+                            <span className="text-xs font-semibold text-foreground text-right shrink-0">
+                              {c.masked ? (
+                                <span className="inline-flex items-center gap-1 text-muted-foreground font-normal">
+                                  <Lock className="w-3 h-3" /> {c.weight}%
+                                </span>
+                              ) : c.has_any_score
+                                ? `${c.earned.toFixed(1)}/${round1(c.max_points)}`
+                                : '—'}
+                            </span>
+                          </span>
+                          <span className="block h-1.5 mt-1 rounded-full bg-muted overflow-hidden">
+                            <motion.span initial={{ width: 0 }}
+                              animate={{ width: `${pct}%` }}
+                              transition={{ delay: i * 0.06 + 0.25, duration: 0.5 }}
+                              className="block h-full rounded-full gradient-primary" />
+                          </span>
+                          {/* ── บอกให้ชัดว่าตัวเลขข้างบนคิดจากอะไร ──
+                              ปัญหาเดิม: หมวด LAB 20% มีงาน 2 ชิ้น ได้เต็มทั้งคู่
+                              แสดง 20.0/20 ทำให้เข้าใจว่าได้ LAB เต็มทั้งเทอมแล้ว
+                              พออาจารย์โพสต์งานเพิ่ม ตัวเลขลดลงเอง เข้าใจว่าคะแนนหาย */}
+                          {!c.masked && c.has_any_score && (
+                            <span className="block text-[10px] text-muted-foreground mt-0.5 leading-relaxed">
+                              {c.planned_item_count != null
+                                ? `ตรวจแล้ว ${c.graded_items} จาก ${c.planned_item_count} ชิ้นที่วางแผนไว้`
+                                : `คิดจากงานที่ตรวจแล้ว ${c.graded_items} ชิ้น`}
+                              {' · '}เต็มหมวดนี้ {c.weight} คะแนน
+                              {!done && (
+                                <span className="block text-warning">
+                                  คะแนนอาจเปลี่ยนเมื่ออาจารย์เพิ่มงานหรือตรวจงานเพิ่ม
+                                </span>
+                              )}
+                            </span>
+                          )}
                         </span>
                       </button>
 

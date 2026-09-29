@@ -12,7 +12,7 @@ const comp = (over: Partial<GradeComponent> = {}): GradeComponent => ({
   weight_percent: 30, calc_mode: 'proportional', drop_lowest: 0,
   is_final_exam: false, score_mode: 'manual',
   credit_on_time: 1, credit_late: 0.5, credit_excused: 1, credit_absent: 0,
-  position: 1, ...over,
+  planned_item_count: null, position: 1, ...over,
 });
 
 const item = (id: string, max: number, w = 0, position = 0): StructureItem => ({
@@ -199,5 +199,63 @@ describe('courseScore — รวมทุกหมวด', () => {
   it('weightsComplete', () => {
     expect(weightsComplete(components)).toBe(true);
     expect(weightsComplete(components.slice(0, 2))).toBe(false);
+  });
+});
+
+describe('planned_item_count — กันนักศึกษาเข้าใจว่าได้คะแนนหมวดเต็มแล้ว', () => {
+  // ตัวเลขชุดเดียวกับที่ทดสอบบน PostgreSQL 16 จริง
+  // อาการเดิม: LAB 20% มีงาน 2 ชิ้น เต็มชิ้นละ 1 ได้เต็มทั้งคู่ -> แสดง 20.0 / 20
+  // ทำให้เข้าใจว่าได้ LAB เต็มทั้งเทอมแล้ว พอโพสต์งานเพิ่มตัวเลขลดลงเอง
+  const c = comp({ weight_percent: 20 });
+  const labs = [item('LAB1', 1, 0, 1), item('LAB2', 1, 0, 2)];
+  const full = () => 1;
+
+  it('ไม่ตั้งจำนวนที่วางแผนไว้ — พฤติกรรมเดิมทุกประการ', () => {
+    const r = componentScore(c, labs, full);
+    expect(r.earned).toBeCloseTo(20, 10);
+    expect(r.maxPoints).toBeCloseTo(20, 10);
+    expect(r.countsToward).toBe(2);       // คิดจากงานที่มีอยู่จริง
+  });
+
+  it('ตั้งไว้ 10 ชิ้น — ตัวหารเป็น 10 จึงได้ 4 จาก 4 ไม่ใช่ 20 จาก 20', () => {
+    const r = componentScore(comp({ weight_percent: 20, planned_item_count: 10 }), labs, full);
+    expect(r.earned).toBeCloseTo(4, 10);
+    expect(r.maxPoints).toBeCloseTo(4, 10);
+    expect(r.countsToward).toBe(10);
+    expect(r.gradedItems).toBe(2);
+  });
+
+  it('คะแนนเต็มไม่เท่ากัน ประมาณจากค่าเฉลี่ยของงานที่มีอยู่', () => {
+    // เต็ม 10 กับ 20 เฉลี่ย 15 วางแผน 4 ชิ้น -> ตัวหาร 60
+    const mixed = [item('A', 10, 0, 1), item('B', 20, 0, 2)];
+    const r = componentScore(
+      comp({ weight_percent: 30, planned_item_count: 4 }), mixed, () => 5);
+    // ได้ 5+5 = 10 จากตัวหาร 60 คูณน้ำหนัก 30
+    expect(r.earned).toBeCloseTo(10 / 60 * 30, 10);
+    expect(r.maxPoints).toBeCloseTo(30 / 60 * 30, 10);
+  });
+
+  it('งานจริงเกินที่วางแผนไว้ ตัวหารต้องไม่หดจนคะแนนเกินน้ำหนักหมวด', () => {
+    const twelve = Array.from({ length: 12 }, (_, i) => item(`LAB${i + 1}`, 1, 0, i + 1));
+    const r = componentScore(
+      comp({ weight_percent: 20, planned_item_count: 10 }), twelve, full);
+    expect(r.earned).toBeCloseTo(20, 10);   // ไม่ใช่ 24
+    expect(r.maxPoints).toBeCloseTo(20, 10);
+  });
+
+  it('โหมดถ่วงน้ำหนักรายการย่อยไม่ใช้จำนวนที่วางแผนไว้', () => {
+    // น้ำหนักย่อยถูกบังคับให้รวม 100 อยู่แล้ว ตัวหารคงที่ ไม่ต้องประมาณ
+    const wi = comp({ calc_mode: 'weighted_items', weight_percent: 20, planned_item_count: 10 });
+    const items = [item('รายงาน', 50, 60, 1), item('นำเสนอ', 50, 40, 2)];
+    const r = componentScore(wi, items, () => 50);
+    expect(r.earned).toBeCloseTo(20, 10);
+    expect(r.countsToward).toBe(2);
+  });
+
+  it('ยังไม่มีงานเลยแต่ตั้งจำนวนไว้ — ไม่ระเบิด', () => {
+    const r = componentScore(comp({ planned_item_count: 5 }), [], () => null);
+    expect(r.hasAnyScore).toBe(false);
+    expect(r.earned).toBe(0);
+    expect(r.countsToward).toBe(5);
   });
 });

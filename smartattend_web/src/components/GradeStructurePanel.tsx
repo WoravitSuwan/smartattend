@@ -9,7 +9,8 @@ import ComponentItemsEditor from '@/components/ComponentItemsEditor';
 import {
   applyTemplate, calcModeHelp, calcModeLabels, componentKinds, copyGradeStructure,
   deleteTemplate, fetchComponents, fetchStructureItems, fetchTemplates, saveGradeStructure,
-  saveTemplate, scoreModeLabels, type ComponentDraft, type StructureTemplate,
+  savePlannedItemCount, saveTemplate, scoreModeLabels,
+  type ComponentDraft, type StructureTemplate,
 } from '@/lib/grade-structure-data';
 import {
   itemWeightsComplete, weightsComplete, type CalcMode, type GradeComponent,
@@ -38,6 +39,7 @@ const toRows = (cs: GradeComponent[]): Row[] => cs.map(c => ({
   is_final_exam: c.is_final_exam, score_mode: c.score_mode,
   credit_on_time: c.credit_on_time, credit_late: c.credit_late,
   credit_excused: c.credit_excused, credit_absent: c.credit_absent,
+  planned_item_count: c.planned_item_count,
 }));
 
 /**
@@ -147,6 +149,16 @@ const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
       toast.error(error.message || 'บันทึกโครงสร้างคะแนนไม่สำเร็จ');
       return;
     }
+    // planned_item_count ไม่ได้ผ่าน save_grade_structure_v2 จึงบันทึกต่อท้าย
+    // เฉพาะหมวดที่ค่าเปลี่ยนจริง เพื่อไม่ยิง RPC เกินจำเป็น
+    const before = new Map(saved.map(c => [c.id, c.planned_item_count ?? null]));
+    const changed = rows.filter(r =>
+      r.id && (r.planned_item_count ?? null) !== (before.get(r.id) ?? null));
+    for (const r of changed) {
+      const { error: e2 } = await savePlannedItemCount(r.id!, r.planned_item_count ?? null);
+      if (e2) toast.error(`บันทึกจำนวนงานที่วางแผนไว้ของ "${r.name}" ไม่สำเร็จ`);
+    }
+
     toast.success('บันทึกโครงสร้างคะแนนแล้ว');
     setReason('');
     load();
@@ -272,6 +284,41 @@ const GradeStructurePanel = ({ courseId }: { courseId: string }) => {
                   <p className="text-[10px] text-muted-foreground leading-relaxed">
                     {calcModeHelp[r.calc_mode]}
                   </p>
+
+                  {/* จำนวนงานที่วางแผนไว้ — ใช้กับโหมดตามสัดส่วนเท่านั้น
+                      โหมดถ่วงน้ำหนักรายการย่อยบังคับให้น้ำหนักย่อยรวม 100 อยู่แล้ว
+                      ตัวหารจึงคงที่ ไม่ต้องประมาณ */}
+                  {r.calc_mode === 'proportional' && (
+                    <div className="space-y-1">
+                      <label className="flex items-center gap-1.5 text-[10px] text-foreground">
+                        จำนวนงานที่วางแผนไว้ทั้งเทอม
+                        <input type="number" min={1} max={200}
+                          value={r.planned_item_count ?? ''}
+                          placeholder="ไม่ระบุ"
+                          onChange={e => setRow(r.key, {
+                            planned_item_count: e.target.value === ''
+                              ? null : Number(e.target.value),
+                          })}
+                          className="w-16 px-2 py-1 rounded-lg bg-muted text-center outline-none" />
+                        ชิ้น (ไม่บังคับ)
+                      </label>
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                        {r.planned_item_count == null
+                          ? 'เว้นว่าง = คิดคะแนนจากงานที่มีอยู่จริง นักศึกษาที่ได้เต็มทุกชิ้น'
+                            + 'จะเห็นว่าได้คะแนนหมวดนี้เต็มแล้ว แม้จะยังโพสต์งานไม่ครบ'
+                          : `นักศึกษาจะเห็นว่า "ตรวจแล้ว n จาก ${r.planned_item_count} ชิ้นที่วางแผนไว้" `
+                            + 'และคะแนนจะคิดเทียบกับจำนวนนี้ ไม่ใช่จำนวนงานที่มีอยู่'}
+                      </p>
+                      {r.id && r.planned_item_count != null
+                        && its.length > r.planned_item_count && (
+                        <p className="text-[10px] text-warning leading-relaxed">
+                          หมวดนี้มีงานจริง {its.length} ชิ้น เกินที่วางแผนไว้
+                          {' '}{r.planned_item_count} ชิ้น — ระบบจะใช้จำนวนจริงเป็นตัวหาร
+                          เพื่อไม่ให้คะแนนเกินน้ำหนักหมวด ควรแก้ตัวเลขที่วางแผนไว้ให้ตรง
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   <div className="flex items-center gap-3 flex-wrap">
                     <label className="flex items-center gap-1.5 text-[10px] text-foreground">

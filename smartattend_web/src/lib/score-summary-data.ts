@@ -18,6 +18,10 @@ export interface SummaryComponent {
   total_items: number;
   dropped: number;
   has_any_score: boolean;
+  /** จำนวนงานที่อาจารย์วางแผนไว้ (null = คิดจากงานที่มีอยู่จริง) */
+  planned_item_count: number | null;
+  /** จำนวนงานที่ใช้เป็นฐานของตัวหาร — ที่วางแผนไว้ หรือที่มีอยู่จริง */
+  counts_toward: number;
   /** true = หมวดนี้ยังถูกปิดบัง บอกได้แค่ว่ากินน้ำหนักเท่าไร ไม่บอกคะแนน */
   masked: boolean;
 }
