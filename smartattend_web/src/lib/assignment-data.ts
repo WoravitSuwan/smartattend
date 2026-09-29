@@ -12,8 +12,13 @@ export interface AssignmentRow {
   created_at: string;
   attachment_path: string | null;
   attachment_name: string | null;
+  /** หมวดคะแนนที่งานนี้ผูกไว้ — null = ไม่ผูก คะแนนจะไม่เข้าตารางคะแนนให้เอง */
+  component_id: string | null;
+  counts_toward_grade: boolean;
   courseCode?: string;
   courseName?: string;
+  /** ชื่อหมวดคะแนน มาจากการ join ไม่ใช่คอลัมน์ในตาราง */
+  componentName?: string;
 }
 
 export interface SubmissionRow {
@@ -70,11 +75,19 @@ export async function fetchAssignments(courseIds: string[]): Promise<AssignmentR
   if (courseIds.length === 0) return [];
   const { data, error } = await (supabase as any)
     .from('assignments')
-    .select('id, course_id, title, description, due_at, max_score, created_at, attachment_path, attachment_name, courses!inner ( code, name )')
+    // grade_components ไม่ใส่ !inner เพราะงานที่ไม่ได้ผูกหมวดต้องยังแสดงอยู่
+    .select('id, course_id, title, description, due_at, max_score, created_at, '
+          + 'attachment_path, attachment_name, component_id, counts_toward_grade, '
+          + 'courses!inner ( code, name ), grade_components ( name )')
     .in('course_id', courseIds)
     .order('due_at', { ascending: true, nullsFirst: false });
   if (error) { console.error('fetchAssignments', error); return []; }
-  return (data ?? []).map((r: any) => ({ ...r, courseCode: r.courses?.code ?? '', courseName: r.courses?.name ?? '' }));
+  return (data ?? []).map((r: any) => ({
+    ...r,
+    courseCode: r.courses?.code ?? '',
+    courseName: r.courses?.name ?? '',
+    componentName: r.grade_components?.name ?? undefined,
+  }));
 }
 
 export async function fetchMySubmissions(studentId: string, assignmentIds: string[]): Promise<SubmissionRow[]> {
