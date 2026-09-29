@@ -1,7 +1,21 @@
 [Unit]
 Description=SmartAttend Raspberry Pi attendance agent
-After=network-online.target
-Wants=network-online.target
+
+# time-sync.target สำคัญพอ ๆ กับเครือข่าย
+#
+# Raspberry Pi ไม่มีนาฬิกาสำรอง (RTC) เมื่อบูตขึ้นมา เวลาของเครื่องจะย้อนไป
+# เท่ากับตอนปิดเครื่องครั้งล่าสุด จนกว่าจะซิงก์จากอินเทอร์เน็ตสำเร็จ
+# ถ้าโปรแกรมเริ่มก่อนจังหวะนั้น บันทึกการทำงานช่วงแรกจะติดเวลาที่ผิด
+# ทำให้ไล่ปัญหาย้อนหลังจากบันทึกไม่ได้
+#
+# เวลาที่บันทึกลงฐานข้อมูลไม่ได้รับผลกระทบ เพราะ record_attendance() ใช้ now()
+# ของเซิร์ฟเวอร์เป็นตัวตัดสินตรงเวลา/มาสาย ไม่ได้เชื่อเวลาที่อุปกรณ์ส่งมา
+# ที่แก้ตรงนี้คือความถูกต้องของ "บันทึกการทำงาน" เท่านั้น
+#
+# ต้องเปิดบริการรอซิงก์เวลาด้วย ไม่งั้น target นี้จะผ่านทันทีโดยไม่รออะไร
+#   sudo systemctl enable systemd-time-wait-sync
+Wants=network-online.target time-sync.target
+After=network-online.target time-sync.target
 
 [Service]
 Type=simple
