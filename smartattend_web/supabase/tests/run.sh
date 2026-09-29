@@ -72,11 +72,21 @@ extract() {           # extract <ไฟล์ migration> <ชื่อฟัง�
   ' "$1"
 }
 
-REC_ATT="$MIGRATIONS/20260927130000_record_attendance_server_time.sql"
-[ -f "$REC_ATT" ] || { echo "ไม่พบไฟล์ migration ของ record_attendance"; exit 1; }
-extract "$REC_ATT" record_attendance > "$WORK/fn_record_attendance.sql"
-grep -q 'record_attendance' "$WORK/fn_record_attendance.sql" \
-  || { echo "ดึงฟังก์ชัน record_attendance จาก migration ไม่สำเร็จ"; exit 1; }
+pull() {            # pull <ไฟล์ migration> <ชื่อฟังก์ชัน> <ไฟล์ปลายทาง>
+  [ -f "$1" ] || { echo "ไม่พบไฟล์ migration: $1"; exit 1; }
+  extract "$1" "$2" > "$3"
+  grep -q "$2" "$3" || { echo "ดึงฟังก์ชัน $2 จาก migration ไม่สำเร็จ"; exit 1; }
+}
+
+pull "$MIGRATIONS/20260927130000_record_attendance_server_time.sql" \
+     record_attendance "$WORK/fn_record_attendance.sql"
+
+# log_audit_event ตัวจริง — ถูกเรียกจาก RPC ที่เขียนข้อมูลแทบทุกตัว
+# ดึงจาก migration ล่าสุดที่นิยามมันไว้ (เรียงตามชื่อไฟล์ ตัวท้ายสุดคือตัวที่มีผล)
+LAST_AUDIT="$(grep -l 'CREATE OR REPLACE FUNCTION public.log_audit_event(' \
+                "$MIGRATIONS"/*.sql | sort | tail -1)"
+pull "$LAST_AUDIT" log_audit_event "$WORK/fn_log_audit_event.sql"
+echo "   log_audit_event มาจาก $(basename "$LAST_AUDIT")"
 
 echo "── เตรียมสคีมา"
 "${PSQL[@]}" -f "$SQL/00_harness.sql"
@@ -86,6 +96,7 @@ echo "── โหลดฟังก์ชันที่ทดสอบจา�
 # save_component_items โหลดทั้งไฟล์ได้ เพราะไฟล์นั้นมีแต่ฟังก์ชันกับ COMMENT
 "${PSQL[@]}" -f "$MIGRATIONS/20260928100000_component_items_rpc.sql"
 "${PSQL[@]}" -f "$WORK/fn_record_attendance.sql"
+"${PSQL[@]}" -f "$WORK/fn_log_audit_event.sql"
 
 echo "── รันเทสต์"
 for f in "$SQL"/[1-8][0-9]_*.sql; do

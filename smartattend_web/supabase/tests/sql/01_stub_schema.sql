@@ -29,13 +29,6 @@ CREATE TABLE auth.users (id uuid PRIMARY KEY);
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS
   $$ SELECT NULLIF(current_setting('test.uid', true), '')::uuid $$;
 
--- ในของจริงอ่านจากตาราง user_roles ที่นี่ให้ตั้งผ่าน test.admins ได้
-CREATE FUNCTION internal.has_role(_uid uuid, _r app_role) RETURNS boolean
-LANGUAGE sql STABLE AS $$
-  SELECT _r = 'admin'::app_role
-     AND position(_uid::text in COALESCE(current_setting('test.admins', true), '')) > 0
-$$;
-
 -- ── ตารางหลัก ───────────────────────────────────────────────────────────────
 CREATE TABLE public.courses (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -108,22 +101,34 @@ CREATE TABLE public.grade_audit_logs (
   previous_score numeric, new_score numeric, reason text,
   created_at timestamptz NOT NULL DEFAULT now());
 
+-- คอลัมน์ต้องตรงกับของจริงใน migration 20260713022326 เพราะเทสต์โหลด
+-- log_audit_event ตัวจริงมาใช้ ไม่ได้เขียนตัวจำลองขึ้นมาเอง
 CREATE TABLE public.audit_logs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  actor uuid, action text, target text, target_id text, detail text,
-  before jsonb, after jsonb, reason text,
+  actor_id uuid, actor_name text, actor_role text,
+  action text NOT NULL, target text, target_id text, detail text,
+  before jsonb, after jsonb, reason text, ip text,
   created_at timestamptz NOT NULL DEFAULT now());
 
+CREATE TABLE public.user_roles (user_id uuid, role app_role);
+CREATE TABLE public.profiles (user_id uuid PRIMARY KEY, name text);
+
 -- ── ฟังก์ชันตัวช่วยที่ RPC เรียกใช้ ──────────────────────────────────────────
-CREATE FUNCTION public.log_audit_event(
-  _action text, _target text DEFAULT NULL, _target_id text DEFAULT NULL,
-  _detail text DEFAULT NULL, _before jsonb DEFAULT NULL, _after jsonb DEFAULT NULL,
-  _reason text DEFAULT NULL) RETURNS uuid LANGUAGE plpgsql AS $$
-DECLARE v uuid; BEGIN
-  INSERT INTO public.audit_logs (actor, action, target, target_id, detail, before, after, reason)
-  VALUES (auth.uid(), _action, _target, _target_id, _detail, _before, _after, _reason)
-  RETURNING id INTO v; RETURN v;
-END $$;
+-- ⚠️ ไม่เขียน log_audit_event ตัวจำลองไว้ที่นี่โดยเจตนา
+--    run.sh โหลดตัวจริงจาก migration 20260724040344 มาใช้
+--
+--    ก่อนหน้านี้ที่นี่มีตัวจำลองแบบง่าย ๆ ที่ไม่ได้เรียก has_role เลย
+--    เทสต์จึงผ่านทั้งที่ของจริงบนคลาวด์พังด้วย
+--      function public.has_role(uuid, app_role) does not exist
+--    ตัวจำลองที่ "ใจดีกว่าของจริง" คือตาข่ายที่มีรูใหญ่กว่าปลาที่จะจับ
+
+-- has_role อยู่ใน schema internal ตามของจริง (ถูกย้ายไปตั้งแต่ 20260705031229)
+-- ตั้งใจไม่สร้าง public.has_role เพื่อให้เทสต์พังเหมือนของจริงถ้าใครเรียกผิด schema
+CREATE FUNCTION internal.has_role(_user_id uuid, _role app_role) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (SELECT 1 FROM public.user_roles
+                 WHERE user_id = _user_id AND role = _role)
+$$;
 
 CREATE FUNCTION public.is_course_instructor(_course_id uuid, _uid uuid) RETURNS boolean
 LANGUAGE sql STABLE AS $$

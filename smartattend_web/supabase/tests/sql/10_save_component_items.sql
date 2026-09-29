@@ -15,6 +15,17 @@ INSERT INTO auth.users(id) VALUES
   ('33333333-3333-3333-3333-333333333333')    -- นักศึกษา ข
 ON CONFLICT DO NOTHING;
 
+INSERT INTO public.profiles(user_id, name) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'อาจารย์ทดสอบ'),
+  ('22222222-2222-2222-2222-222222222222', 'นักศึกษา ก'),
+  ('33333333-3333-3333-3333-333333333333', 'นักศึกษา ข')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO public.user_roles(user_id, role) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'instructor'),
+  ('22222222-2222-2222-2222-222222222222', 'student'),
+  ('33333333-3333-3333-3333-333333333333', 'student');
+
 INSERT INTO public.courses(id, code, name, instructor_id) VALUES
   ('aaaaaaaa-0000-0000-0000-000000000001', 'CS101', 'วิชาทดสอบ',
    '11111111-1111-1111-1111-111111111111');
@@ -217,3 +228,18 @@ SELECT t.ok(:'SUITE', 'ทุกการแก้โครงสร้างล
   (SELECT count(*) FROM public.audit_logs WHERE action = 'grade_component.items') >= 6,
   (SELECT count(*)::text || ' แถว' FROM public.audit_logs
     WHERE action = 'grade_component.items'));
+
+-- ── 12. ประวัติต้องบันทึกว่าใครทำ ─────────────────────────────────────────────
+--  เทสต์สองข้อนี้เพิ่มหลังเจอบั๊กจริงบนคลาวด์: log_audit_event() เรียก
+--  public.has_role() ซึ่งถูกลบไปแล้วตั้งแต่ migration 20260711075028
+--  ทำให้ RPC ที่เขียนข้อมูล "ทุกตัว" ล้มด้วย
+--    function public.has_role(uuid, app_role) does not exist
+--  เทสต์ชุดเดิมไม่เจอ เพราะสคีมาจำลองเขียน log_audit_event ตัวง่าย ๆ ขึ้นมาเอง
+--  ที่ไม่ได้เรียก has_role เลย ตอนนี้โหลดตัวจริงจาก migration มาใช้แล้ว
+SELECT t.eq(:'SUITE', 'ประวัติบันทึกชื่อผู้ทำจากตาราง profiles',
+  (SELECT DISTINCT actor_name FROM public.audit_logs
+    WHERE action = 'grade_component.items'), 'อาจารย์ทดสอบ');
+
+SELECT t.eq(:'SUITE', 'ประวัติบันทึกบทบาทที่อ่านจาก internal.has_role',
+  (SELECT DISTINCT actor_role FROM public.audit_logs
+    WHERE action = 'grade_component.items'), 'instructor');
