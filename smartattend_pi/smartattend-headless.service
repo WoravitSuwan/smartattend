@@ -1,0 +1,34 @@
+[Unit]
+Description=SmartAttend — โหมดไม่มีจอ (เช็คชื่ออย่างเดียว)
+
+# ใช้กับเครื่องที่ต่อจอไม่ได้ ห้องที่ไม่ต้องการจอหน้าห้อง หรือตอนแก้ปัญหาผ่าน SSH
+# โหมดปกติของโครงงานนี้คือ smartattend.service ที่มีจอแสดงผล
+
+# time-sync.target สำคัญพอ ๆ กับเครือข่าย
+#
+# Raspberry Pi ไม่มีนาฬิกาสำรอง (RTC) เมื่อบูตขึ้นมา เวลาของเครื่องจะย้อนไป
+# เท่ากับตอนปิดเครื่องครั้งล่าสุด จนกว่าจะซิงก์จากอินเทอร์เน็ตสำเร็จ
+# ถ้าโปรแกรมเริ่มก่อนจังหวะนั้น บันทึกการทำงานช่วงแรกจะติดเวลาที่ผิด
+#
+# ต้องเปิดบริการรอซิงก์เวลาด้วย ไม่งั้น target นี้จะผ่านทันทีโดยไม่รออะไร
+#   sudo systemctl enable systemd-time-wait-sync
+Wants=network-online.target time-sync.target
+After=network-online.target time-sync.target
+
+# เปิดพร้อมกันสองโหมดไม่ได้ ทั้งคู่แย่งกล้องตัวเดียวกัน
+Conflicts=smartattend.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/smartattend_pi
+ExecStart=/home/pi/smartattend_pi/.venv/bin/python pi_agent.py --no-display
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+# ไม่ตั้ง DISPLAY โดยเจตนา โหมดนี้ไม่เปิดหน้าต่างใด ๆ จึงไม่ต้องรอเดสก์ท็อป
+# และรันบน Raspberry Pi OS Lite ที่ไม่มีเดสก์ท็อปเลยก็ได้
+
+[Install]
+WantedBy=multi-user.target

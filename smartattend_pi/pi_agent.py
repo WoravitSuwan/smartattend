@@ -54,6 +54,8 @@ class SupabaseLogHandler(logging.Handler):
 
 log.addHandler(SupabaseLogHandler())
 
+WINDOW_NAME = "SmartAttend"
+
 POLL_SECONDS = 4          # ความถี่ในการถามเซิร์ฟเวอร์เมื่อยังไม่มีคาบเรียน
 COOLDOWN_SECONDS = 6      # เว้นระยะหลังบันทึกสำเร็จ กันบันทึกซ้ำคนเดิม
 BANNER_SECONDS = 4        # ระยะเวลาแสดงผลลัพธ์บนจอ
@@ -161,7 +163,9 @@ def main() -> None:
     ap.add_argument("--downscale", type=float, default=0.25,
                     help="ย่อภาพก่อนตรวจจับ (0.25 = เร็วสุด, 0.5 = แม่นขึ้นแต่ช้าลง)")
     ap.add_argument("--no-display", action="store_true",
-                    help="ไม่เปิดหน้าต่างแสดงผล เหมาะกับการรันเป็นบริการเบื้องหลัง")
+                    help="ไม่เปิดหน้าต่างแสดงผล ใช้กับเครื่องที่ไม่มีจอหรือรันผ่าน SSH")
+    ap.add_argument("--fullscreen", action="store_true",
+                    help="แสดงผลเต็มจอ ใช้กับจอที่ติดตั้งหน้าห้องเรียน")
     ap.add_argument("--perf-log", default="face_recognition_timing.csv",
                     help="ไฟล์ CSV บันทึกเวลาตรวจสอบใบหน้าแต่ละครั้ง สำหรับทำตารางผลทดสอบประสิทธิภาพ")
     ap.add_argument("--perf-log-every", type=int, default=50,
@@ -174,6 +178,15 @@ def main() -> None:
     except RuntimeError as e:
         log.error("%s", e)
         sys.exit(1)
+    # หน้าต่างแสดงผลต้องสร้างก่อนตั้งค่าเต็มจอ และสร้างครั้งเดียวนอกลูป
+    # ถ้าเรียก setWindowProperty ทุกเฟรม จอจะกะพริบบนบางไดรเวอร์
+    if not args.no_display:
+        cv2.namedWindow(WINDOW_NAME,
+                        cv2.WINDOW_NORMAL if args.fullscreen else cv2.WINDOW_AUTOSIZE)
+        if args.fullscreen:
+            cv2.setWindowProperty(WINDOW_NAME, cv2.WND_PROP_FULLSCREEN,
+                                  cv2.WINDOW_FULLSCREEN)
+
     log.info("เริ่มรอคาบเรียน")
 
     perf = PerfLog(args.perf_log, args.perf_log_every)
@@ -313,7 +326,7 @@ def main() -> None:
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
             if not args.no_display:
-                cv2.imshow("SmartAttend", display)
+                cv2.imshow(WINDOW_NAME, display)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
             else:

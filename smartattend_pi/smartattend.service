@@ -1,5 +1,6 @@
 [Unit]
-Description=SmartAttend Raspberry Pi attendance agent
+Description=SmartAttend — โหมดมีจอแสดงผลหน้าห้องเรียน
+Documentation=https://github.com/WoravitSuwan/smartattend/blob/main/docs/%E0%B8%84%E0%B8%B9%E0%B9%88%E0%B8%A1%E0%B8%B7%E0%B8%AD%E0%B8%99%E0%B8%B1%E0%B8%81%E0%B8%9E%E0%B8%B1%E0%B8%92%E0%B8%99%E0%B8%B2.md
 
 # time-sync.target สำคัญพอ ๆ กับเครือข่าย
 #
@@ -17,14 +18,29 @@ Description=SmartAttend Raspberry Pi attendance agent
 Wants=network-online.target time-sync.target
 After=network-online.target time-sync.target
 
+# โหมดนี้ต้องมีเดสก์ท็อปขึ้นก่อน เพราะเปิดหน้าต่าง OpenCV
+After=graphical.target
+
+# เปิดพร้อมกันสองโหมดไม่ได้ ทั้งคู่แย่งกล้องตัวเดียวกัน
+# ตัวที่สตาร์ตทีหลังจะทำให้ตัวแรกถูกหยุด แทนที่จะพังเงียบ ๆ ด้วย
+# "ไม่พบกล้อง" ซึ่งหาสาเหตุยากกว่ามาก
+Conflicts=smartattend-headless.service
+
 [Service]
 Type=simple
 User=pi
 WorkingDirectory=/home/pi/smartattend_pi
-ExecStart=/home/pi/smartattend_pi/.venv/bin/python pi_agent.py --no-display
+ExecStart=/home/pi/smartattend_pi/.venv/bin/python pi_agent.py --fullscreen
 Restart=always
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1
 
+# ต้องบอกว่าจะวาดลงจอไหน ไม่งั้น OpenCV เปิดหน้าต่างไม่ได้และโปรแกรมจะตายทันที
+# ด้วย "cannot connect to X server" ค่านี้ใช้ได้เมื่อเปิด Desktop Autologin
+# ของผู้ใช้ pi ไว้แล้ว (ดู ก.1.2 ขั้นที่ 8)
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/pi/.Xauthority
+
 [Install]
-WantedBy=multi-user.target
+# ผูกกับ graphical.target ไม่ใช่ multi-user.target เพราะต้องรอเดสก์ท็อป
+WantedBy=graphical.target
