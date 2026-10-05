@@ -246,6 +246,104 @@ const Side4 = ({ fixed }: { fixed: boolean }) => (
   </div>
 );
 
+/* ─────────── เรื่องที่ 6: ตัวเลขรวมและความยาวแถบของหมวด ───────────
+ * สภาพที่ผู้ใช้รายงาน: หมวด LAB น้ำหนัก 20% ตรวจแล้ว 3 งาน ได้เต็มทุกงาน
+ * ก่อนแก้ หน้าจอแสดง 20.0 / 20 และแถบ LAB เต็มหลอด ทั้งที่ตรวจไปแค่ 20% ของวิชา */
+interface C6 {
+  name: string; weight: number; earned: number; maxPoints: number;
+  gradedItems: number; hasAnyScore: boolean; masked?: boolean;
+}
+const COMP6: C6[] = [
+  { name: 'LABs', weight: 20, earned: 20, maxPoints: 20, gradedItems: 3, hasAnyScore: true },
+  { name: 'งานที่มอบหมาย', weight: 20, earned: 0, maxPoints: 0, gradedItems: 0, hasAnyScore: false },
+  { name: 'จิตพิสัย', weight: 10, earned: 0, maxPoints: 0, gradedItems: 0, hasAnyScore: false },
+  { name: 'สอบกลางภาค', weight: 20, earned: 0, maxPoints: 0, gradedItems: 0, hasAnyScore: false },
+  { name: 'สอบปลายภาค', weight: 30, earned: 0, maxPoints: 0, gradedItems: 0, hasAnyScore: false, masked: true },
+];
+const STRIPES6 = 'repeating-linear-gradient(45deg,'
+  + ' hsl(var(--muted-foreground) / 0.45) 0 2px,'
+  + ' transparent 2px 5px)';
+
+const Card6 = ({ after }: { after: boolean }) => (
+  <div className="bg-card rounded-2xl p-5 shadow-elevated">
+    <div className={`flex items-center gap-3 ${after ? 'mb-3' : 'mb-4'}`}>
+      <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+        <span className="w-5 h-5 rounded bg-primary/60" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-bold font-display text-foreground">ENGCE101</p>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">1/2569</span>
+        </div>
+        <p className="text-xs text-muted-foreground truncate">การเขียนโปรแกรมคอมพิวเตอร์</p>
+      </div>
+      {!after && (
+        <div className="text-right shrink-0">
+          <p className="text-xl font-bold font-display text-primary leading-tight">
+            20.0<span className="text-xs font-medium text-muted-foreground"> / 20</span>
+          </p>
+          <p className="text-[10px] text-muted-foreground">คิดเป็น 100.0% ของที่ตรวจแล้ว</p>
+        </div>
+      )}
+    </div>
+
+    {after && (
+      <div className="mb-3">
+        <p className="text-2xl font-bold font-display text-primary leading-tight">
+          20.0<span className="text-sm font-medium text-muted-foreground"> / 100</span>
+        </p>
+        <p className="text-[10px] text-muted-foreground leading-relaxed">
+          ตรวจแล้ว 20% ของคะแนนทั้งหมด
+          <br />ได้เต็มจากงานที่ตรวจแล้ว
+        </p>
+      </div>
+    )}
+
+    <div className="space-y-2">
+      {COMP6.map(c => {
+        // ก่อนแก้: หารด้วยน้ำหนักหมวดเอง → LAB เต็มหลอด
+        // หลังแก้: เทียบคะแนนเต็มของวิชา (100) → LAB ยาว 20% ของหลอด
+        const pct = after
+          ? (c.masked || !c.hasAnyScore ? 0 : Math.min(100, c.earned))
+          : (c.masked || c.weight <= 0 ? 0 : Math.min(100, (c.earned / c.weight) * 100));
+        const maskedPct = after && c.masked ? c.weight : 0;
+        return (
+          <div key={c.name} className="flex items-start gap-2">
+            <span className="w-3 shrink-0 text-muted-foreground text-xs leading-4">›</span>
+            <span className="flex-1 min-w-0">
+              <span className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground flex-1 min-w-0 truncate">{c.name}</span>
+                <span className="text-xs font-semibold text-foreground text-right shrink-0">
+                  {c.masked
+                    ? <span className="inline-flex items-center gap-1 text-muted-foreground font-normal">🔒 {c.weight}%</span>
+                    : c.hasAnyScore ? `${c.earned.toFixed(1)}/${c.maxPoints}` : '—'}
+                </span>
+              </span>
+              <span className="block h-1.5 mt-1 rounded-full bg-muted overflow-hidden">
+                {c.masked && after
+                  ? <span className="block h-full rounded-full"
+                      style={{ width: `${maskedPct}%`, backgroundImage: STRIPES6 }} />
+                  : <span className="block h-full rounded-full gradient-primary" style={{ width: `${pct}%` }} />}
+              </span>
+              {!c.masked && c.hasAnyScore && (
+                <span className="block text-[10px] text-muted-foreground mt-0.5 leading-relaxed">
+                  คิดจากงานที่ตรวจแล้ว {c.gradedItems} ชิ้น · เต็มหมวดนี้ {c.weight} คะแนน
+                </span>
+              )}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+
+    <p className="text-[10px] text-muted-foreground text-center mt-3 leading-relaxed">
+      ยังประเมินไม่ครบ · ตรวจแล้ว 20% จากน้ำหนักทั้งหมด 100% (เหลืออีก 80%) —
+      ยังไม่แสดงตัวอักษรเกรดเพราะคิดจากคะแนนแค่บางส่วน
+      <br />คะแนนที่ถูกปิดบังอยู่ 30% (คะแนนปลายภาค) จะเห็นเมื่ออาจารย์ประกาศผล
+    </p>
+  </div>
+);
+
 const Frame = ({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) => (
   <div className="min-h-screen brand-surface p-3 space-y-2">
     <p className="text-[11px] font-bold text-foreground">{title}</p>
@@ -265,6 +363,22 @@ const VIEWS: Record<string, React.ReactNode> = {
   '4-after': <Side4 fixed />,
   '5-before': <Frame title="เรื่อง 5 — ก่อน" note="9 แท็บ ต้องเลื่อนแนวนอน ตัวหนังสือ 10px"><Bar5Before /></Frame>,
   '5-after': <Frame title="เรื่อง 5 — หลัง" note="5 ช่องพอดีจอ ตัวหนังสือ 11px ไม่เลื่อนแนวนอน"><><Bar5After /><div className="mt-3"><Sheet5 /></div></></Frame>,
+  '6-before': <div className="min-h-screen brand-surface p-3 space-y-2">
+    <p className="text-[11px] font-bold text-foreground">เรื่อง 6 — ก่อน</p>
+    <p className="text-[10px] text-muted-foreground leading-relaxed">
+      ตัวเลขใหญ่หาร 20 ได้ 20.0 / 20 อ่านว่า "เต็มแล้ว" และแถบ LAB เต็มหลอด
+      ทั้งที่ตรวจไปแค่ 20% ของวิชา
+    </p>
+    <Card6 after={false} />
+  </div>,
+  '6-after': <div className="min-h-screen brand-surface p-3 space-y-2">
+    <p className="text-[11px] font-bold text-foreground">เรื่อง 6 — หลัง</p>
+    <p className="text-[10px] text-muted-foreground leading-relaxed">
+      หารด้วยคะแนนเต็มของวิชา 100 · แถบ LAB ยาว 20% ตามสัดส่วนจริง
+      หมวดที่ยังไม่ตรวจแถบว่าง หมวดที่ปิดบังเป็นลายทาง
+    </p>
+    <Card6 after />
+  </div>,
 };
 
 createRoot(document.getElementById('root')!).render(

@@ -142,7 +142,7 @@ const GradesPage = () => {
           return (
             <motion.div key={r.courseId} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.06 }} className="bg-card rounded-2xl p-5 shadow-elevated">
-              <div className="flex items-center gap-3 mb-4">
+              <div className="flex items-center gap-3 mb-3">
                 <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
                   <BarChart3 className="w-5 h-5 text-primary" />
                 </div>
@@ -155,25 +155,37 @@ const GradesPage = () => {
                   </div>
                   <p className="text-xs text-muted-foreground truncate">{r.name}</p>
                 </div>
-                <div className="text-right shrink-0">
-                  {sm.used_weight > 0 ? (
-                    <>
-                      <p className="text-xl font-bold font-display text-primary leading-tight">
-                        {sm.earned.toFixed(1)}
-                        <span className="text-xs font-medium text-muted-foreground"> / {round1(sm.used_weight)}</span>
-                      </p>
-                      <p className="text-[10px] text-muted-foreground">
-                        คิดเป็น {sm.normalized?.toFixed(1) ?? '—'}% ของที่ตรวจแล้ว
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">ยังไม่มีคะแนน</p>
-                  )}
-                  {sm.grade != null && (
-                    <p className={`text-xs font-bold mt-0.5 ${gradeColor(sm.grade)}`}>เกรด {sm.grade}</p>
-                  )}
-                </div>
+                {sm.grade != null && (
+                  <p className={`text-sm font-bold shrink-0 ${gradeColor(sm.grade)}`}>เกรด {sm.grade}</p>
+                )}
               </div>
+
+              {/* ── คะแนนรวมของวิชา ──
+                  ตัวหารคือคะแนนเต็มของรายวิชา (100) ไม่ใช่น้ำหนักที่ตรวจแล้ว
+                  ของเดิมหาร 20 แล้วได้ 20.0/20 ซึ่งอ่านว่า "เต็มแล้ว" ทั้งที่
+                  ตรวจไปแค่ 20% ของวิชา และอาจารย์ยังโพสต์งานเพิ่มได้อีก */}
+              {sm.used_weight > 0 ? (
+                <div className="mb-3">
+                  <p className="text-2xl font-bold font-display text-primary leading-tight">
+                    {sm.earned.toFixed(1)}
+                    <span className="text-sm font-medium text-muted-foreground"> / 100</span>
+                  </p>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    ตรวจแล้ว {round1(sm.used_weight)}% ของคะแนนทั้งหมด
+                    <br />
+                    {/* 100.0% ซ้ำกับคะแนนเต็มของวิชาจนสับสน จึงบอกเป็นคำแทนตัวเลข
+                        กรณีที่ยังไม่เต็มยังบอกเป็นเปอร์เซ็นต์อยู่ เพราะเป็นข้อมูลที่
+                        นักศึกษาใช้ประเมินตัวเองได้ และไม่ชนกับเลข 100 */}
+                    {sm.normalized == null
+                      ? '—'
+                      : sm.normalized >= 99.95
+                        ? 'ได้เต็มจากงานที่ตรวจแล้ว'
+                        : `ได้ ${sm.normalized.toFixed(1)}% ของงานที่ตรวจแล้ว`}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground mb-3">ยังไม่มีคะแนน</p>
+              )}
 
               {/* ── รายหมวด กางดูรายการย่อยได้ ── */}
               <div className="space-y-2">
@@ -182,11 +194,18 @@ const GradesPage = () => {
                   const its = r.items
                     .filter(it => it.component_id === c.component_id)
                     .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
-                  // แถบความคืบหน้าเทียบกับน้ำหนักหมวด ไม่ใช่เทียบส่วนที่ตรวจแล้ว
-                  // เพื่อให้เห็นว่ายังเหลืออีกเท่าไรกว่าจะเต็มหมวด
-                  const pct = c.masked || c.weight <= 0
+                  // ── ความยาวแถบเทียบกับคะแนนเต็มของรายวิชา (100) ──
+                  // ของเดิมหารด้วยน้ำหนักหมวดเอง ทำให้หมวด LAB น้ำหนัก 20 ที่ได้เต็ม
+                  // แสดงแถบเต็มหลอด ซึ่งอ่านว่า "ได้คะแนนครบวิชาแล้ว"
+                  // เนื่องจากคะแนนเต็มของวิชาคือ 100 ค่า c.earned จึงเป็นเปอร์เซ็นต์
+                  // ของวิชาอยู่แล้ว ใช้ตรง ๆ ได้ — หมวด 20 ได้เต็มจะยาว 20% ของหลอด
+                  // หมวดที่ยังไม่ตรวจและหมวดที่ถูกปิดบังให้แถบว่าง (ปิดบังจะวาดลายทางแทน)
+                  const pct = c.masked || !c.has_any_score
                     ? 0
-                    : Math.min(100, (c.earned / c.weight) * 100);
+                    : Math.min(100, Math.max(0, c.earned));
+                  // ความยาวของลายทางสำหรับหมวดที่ถูกปิดบัง บอกเฉพาะ "พื้นที่ที่จองไว้"
+                  // ตามน้ำหนักหมวด เพราะคะแนนจริงยังไม่มีสิทธิ์เห็น
+                  const maskedPct = c.masked ? Math.min(100, Math.max(0, c.weight)) : 0;
                   // ตรวจครบทุกงานที่คาดไว้แล้วหรือยัง — ถ้ายัง คะแนนยังเปลี่ยนได้
                   const done = c.graded_items >= c.counts_toward;
                   return (
@@ -216,10 +235,25 @@ const GradesPage = () => {
                             </span>
                           </span>
                           <span className="block h-1.5 mt-1 rounded-full bg-muted overflow-hidden">
-                            <motion.span initial={{ width: 0 }}
-                              animate={{ width: `${pct}%` }}
-                              transition={{ delay: i * 0.06 + 0.25, duration: 0.5 }}
-                              className="block h-full rounded-full gradient-primary" />
+                            {c.masked ? (
+                              // ลายทางสื่อว่า "มีคะแนนอยู่ตรงนี้แต่ยังดูไม่ได้"
+                              // ต่างจากแถบว่างที่สื่อว่า "ยังไม่มีคะแนน"
+                              <motion.span initial={{ width: 0 }}
+                                animate={{ width: `${maskedPct}%` }}
+                                transition={{ delay: i * 0.06 + 0.25, duration: 0.5 }}
+                                className="block h-full rounded-full"
+                                style={{
+                                  backgroundImage:
+                                    'repeating-linear-gradient(45deg,'
+                                    + ' hsl(var(--muted-foreground) / 0.45) 0 2px,'
+                                    + ' transparent 2px 5px)',
+                                }} />
+                            ) : (
+                              <motion.span initial={{ width: 0 }}
+                                animate={{ width: `${pct}%` }}
+                                transition={{ delay: i * 0.06 + 0.25, duration: 0.5 }}
+                                className="block h-full rounded-full gradient-primary" />
+                            )}
                           </span>
                           {/* ── บอกให้ชัดว่าตัวเลขข้างบนคิดจากอะไร ──
                               ปัญหาเดิม: หมวด LAB 20% มีงาน 2 ชิ้น ได้เต็มทั้งคู่

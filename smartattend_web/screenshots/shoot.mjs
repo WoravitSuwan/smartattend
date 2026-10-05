@@ -5,7 +5,7 @@ const OUT = 'screenshots/out';
 fs.mkdirSync(OUT, { recursive: true });
 
 const views = ['1-before','1-after','2-before','2-after','3-before','3-after',
-               '4-before','4-after','5-before','5-after'];
+               '4-before','4-after','5-before','5-after','6-before','6-after'];
 
 const browser = await chromium.launch({
   // ใช้ Chromium ที่ติดตั้งไว้แล้วในเครื่อง เวอร์ชัน playwright ในโปรเจกต์คนละรุ่น
