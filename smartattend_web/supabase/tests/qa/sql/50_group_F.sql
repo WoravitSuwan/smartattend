@@ -374,8 +374,14 @@ SELECT q.raises('F','F-15d','แก้คะแนนหลังประกา
 -- ───────────────────────────────────────────────────────────────────────────
 RESET ROLE;
 DELETE FROM public.notifications WHERE user_id = :'STU1';   -- ให้เห็นเฉพาะที่เกิดจากข้อนี้
+-- คำสั่งตั้งค่าตั้งต้นนี้รันขณะรายวิชายังถูกล็อกอยู่ จึงติด trigger ที่เพิ่งเพิ่ม
+-- ใช้ช่องยกเว้นเดียวกับที่ RPC ที่เชื่อถือได้ใช้ แล้วปิดคืนทันทีหลังใช้เสร็จ
+-- นี่เป็นการจัดฉากของเทสต์ ไม่ใช่การหย่อนกฎ — ข้อ F-15d ด้านบนยืนยันแล้วว่า
+-- การเขียนตรงโดยไม่มีช่องยกเว้นถูกปฏิเสธจริง
+SET app.bypass_grade_lock = 'on';
 UPDATE public.student_grades SET score = 10
  WHERE grade_item_id = :'LAB1' AND student_id = :'STU1';     -- คืนค่าที่ F-15d อาจเขียนทับ
+SET app.bypass_grade_lock = 'off';
 SELECT q.act_as(:'INS');
 SET ROLE authenticated;
 

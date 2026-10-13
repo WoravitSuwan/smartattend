@@ -141,6 +141,25 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
     () => ({ ...serverErrors, ...invalidCells }),
     [serverErrors, invalidCells]);
 
+  /**
+   * กำลังแก้คะแนนที่เคยบันทึกไว้แล้วหรือไม่ — ใช้ทำให้ช่องเหตุผลเป็นช่องบังคับ
+   * ตั้งแต่ตอนพิมพ์ ไม่ใช่รอให้กดบันทึกแล้วค่อยเด้ง error
+   *
+   * ฐานข้อมูลบังคับกฎนี้อีกชั้นด้วย trigger บน grade_audit_logs (DEF-006)
+   * ที่นี่ทำเพื่อให้ผู้ใช้รู้ตัวก่อน ไม่ใช่เพื่อแทนการบังคับที่ฐานข้อมูล
+   */
+  const needsReason = useMemo(() => {
+    for (const it of structureItems) {
+      for (const s of students) {
+        const key = `${it.id}:${s.id}`;
+        const v = grades[key];
+        if (v === undefined || v === initialGrades[key]) continue;
+        if (initialGrades[key] != null) return true;
+      }
+    }
+    return false;
+  }, [structureItems, students, grades, initialGrades]);
+
   const saveAll = async () => {
     // ไม่ตรวจน้ำหนักรวมที่นี่โดยเจตนา — การกรอกคะแนนกับการตั้งน้ำหนักเป็นคนละ
     // เรื่องกัน ต้นเทอมที่ยังไม่รู้ว่าจะมีงานกี่ชิ้น น้ำหนักยังไม่ครบ 100 เป็น
@@ -360,9 +379,21 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
               </div>
             )}
 
-            <textarea value={reason} onChange={e => setReason(e.target.value)} rows={2}
-              placeholder="เหตุผลในการแก้ไข (จำเป็นถ้าแก้คะแนนที่เคยบันทึกไว้แล้ว)"
-              className="w-full px-3 py-2 rounded-xl bg-muted text-xs text-foreground outline-none resize-none" />
+            <div>
+              {needsReason && (
+                <p className="text-[11px] font-medium text-destructive mb-1">
+                  กำลังแก้คะแนนที่เคยบันทึกไว้แล้ว — ต้องระบุเหตุผลก่อนบันทึก
+                </p>
+              )}
+              <textarea value={reason} onChange={e => setReason(e.target.value)} rows={2}
+                required={needsReason} aria-required={needsReason}
+                aria-invalid={needsReason && !reason.trim()}
+                placeholder={needsReason
+                  ? 'ระบุเหตุผลในการแก้คะแนน (จำเป็น)'
+                  : 'เหตุผลในการแก้ไข (จำเป็นถ้าแก้คะแนนที่เคยบันทึกไว้แล้ว)'}
+                className={`w-full px-3 py-2 rounded-xl bg-muted text-xs text-foreground outline-none resize-none ${
+                  needsReason && !reason.trim() ? 'ring-1 ring-destructive' : ''}`} />
+            </div>
 
             {Object.keys(badCells).length > 0 && (
               <p className="text-[11px] text-destructive font-medium">

@@ -144,11 +144,26 @@ SELECT q.eq('D','D-10d','เลือก delete แล้วระเบีย�
 -- ───────────────────────────────────────────────────────────────────────────
 -- D-11 อาจารย์แก้สถานะย้อนหลังโดยไม่ระบุเหตุผล ต้องบันทึกไม่ได้
 -- ───────────────────────────────────────────────────────────────────────────
+-- ต้องชี้ไปคาบที่ยังมีระเบียนอยู่จริง เพราะข้อ D-10c ลบระเบียนของคาบ SOPEN
+-- ไปหมดแล้ว ถ้า UPDATE ไม่ตรงแถวใดเลย PostgreSQL จะไม่ throw และ trigger
+-- ก็ไม่ทำงาน เทสต์จะดูเหมือนไม่ผ่านทั้งที่กฎทำงานถูก
+SELECT q.eq('D','D-11a','ต้องมีระเบียนให้ทดสอบจริงก่อน','มี 1 แถว',
+  (SELECT count(*) FROM public.attendance_records
+    WHERE session_id = '33333333-3333-4333-8333-333333330001' AND student_id = :'STU3'),
+  1::bigint);
+
 SELECT q.raises('D','D-11','แก้สถานะการเข้าเรียนย้อนหลังโดยไม่ระบุเหตุผล','ต้องถูกปฏิเสธ',
-  format($f$UPDATE public.attendance_records SET status = 'on_time', edited_by = %L::uuid,
+  format($f$UPDATE public.attendance_records SET status = 'absent', edited_by = %L::uuid,
              edited_at = now() WHERE session_id = %L::uuid AND student_id = %L::uuid$f$,
-         :'INS', :'SOPEN', :'STU3'),
+         :'INS', '33333333-3333-4333-8333-333333330001', :'STU3'),
   'เหตุผล');
+
+SELECT q.runs('D','D-11b','แก้สถานะย้อนหลังพร้อมระบุเหตุผล ต้องทำได้','บันทึกสำเร็จ',
+  format($f$UPDATE public.attendance_records SET status = 'absent', edited_by = %L::uuid,
+             edited_at = now(), edit_reason = %L
+             WHERE session_id = %L::uuid AND student_id = %L::uuid$f$,
+         :'INS', 'TEST_นักศึกษาแจ้งว่าระบบบันทึกผิด',
+         '33333333-3333-4333-8333-333333330001', :'STU3'));
 
 -- ───────────────────────────────────────────────────────────────────────────
 -- D-12 อนุมัติใบลา สถานะของวันนั้นต้องเปลี่ยนเป็นลา
