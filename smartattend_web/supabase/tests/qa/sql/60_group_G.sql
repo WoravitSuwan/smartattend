@@ -40,14 +40,18 @@ SELECT q.eq('G','G-02g','นักศึกษาเห็นข้อมูล�
   (SELECT count(*) FROM public.profiles WHERE user_id = :'STU1'), 1::bigint);
 
 -- นักศึกษาขอรายชื่อทั้งห้องผ่าน RPC ที่เป็น SECURITY DEFINER
-SELECT q.eq('G','G-02h','นักศึกษาเรียก get_scan_roster เพื่อขอรายชื่อทั้งห้อง',
-  'ต้องได้ 0 แถว เพราะไม่ใช่อาจารย์ของรายวิชา',
-  (SELECT count(*) FROM public.get_scan_roster(:'COURSE')), 0::bigint);
+--   หลังแก้ DEF-001 ฟังก์ชันปฏิเสธด้วย exception แทนที่จะคืนรายการว่าง
+--   ซึ่งเข้มกว่าเดิม เพราะบอกชัดว่าไม่มีสิทธิ์ ไม่ใช่ปล่อยให้เข้าใจว่าไม่มีข้อมูล
+SELECT q.raises('G','G-02h','นักศึกษาเรียก get_scan_roster เพื่อขอรายชื่อทั้งห้อง',
+  'ต้องถูกปฏิเสธ เพราะไม่ใช่อาจารย์ของรายวิชา',
+  format('SELECT count(*) FROM public.get_scan_roster(%L::uuid)', :'COURSE'),
+  'ไม่มีสิทธิ์');
 
 -- นักศึกษาขอรายชื่อของ "รายวิชาที่ตัวเองไม่ได้ลงทะเบียน"
-SELECT q.eq('G','G-02i','นักศึกษาเรียก get_scan_roster ของรายวิชาที่ไม่ได้ลงทะเบียน',
-  'ต้องได้ 0 แถว',
-  (SELECT count(*) FROM public.get_scan_roster(:'COURSE2')), 0::bigint);
+SELECT q.raises('G','G-02i','นักศึกษาเรียก get_scan_roster ของรายวิชาที่ไม่ได้ลงทะเบียน',
+  'ต้องถูกปฏิเสธ',
+  format('SELECT count(*) FROM public.get_scan_roster(%L::uuid)', :'COURSE2'),
+  'ไม่มีสิทธิ์');
 
 -- นักศึกษาแก้คะแนนตัวเอง
 --   PostgreSQL ไม่ throw error เมื่อ USING ของ RLS กรองแถวออกหมด แต่จะ
@@ -90,8 +94,10 @@ SELECT q.eq('G','G-03d','อาจารย์อ่านประวัติ�
   (SELECT count(*) FROM public.attendance_records ar
     JOIN public.class_sessions cs ON cs.id = ar.session_id
    WHERE cs.course_id = :'COURSE'), 0::bigint);
-SELECT q.eq('G','G-03e','อาจารย์เรียก get_scan_roster ของรายวิชาที่ไม่ได้สอน','ต้องได้ 0 แถว',
-  (SELECT count(*) FROM public.get_scan_roster(:'COURSE')), 0::bigint);
+SELECT q.raises('G','G-03e','อาจารย์เรียก get_scan_roster ของรายวิชาที่ไม่ได้สอน',
+  'ต้องถูกปฏิเสธ',
+  format('SELECT count(*) FROM public.get_scan_roster(%L::uuid)', :'COURSE'),
+  'ไม่มีสิทธิ์');
 SELECT q.raises('G','G-03f','อาจารย์สั่งคำนวณคะแนนเข้าเรียนของรายวิชาที่ไม่ได้สอน','ต้องถูกปฏิเสธ',
   format('SELECT public.recalc_attendance_scores(%L::uuid)', :'COURSE'), 'สิทธิ์');
 SELECT q.raises('G','G-03g','อาจารย์สั่งประกาศผลของรายวิชาที่ไม่ได้สอน','ต้องถูกปฏิเสธ',
@@ -116,9 +122,11 @@ SELECT q.eq('G','G-06b','ผู้ใช้ที่ยังไม่ล็อ�
   (SELECT count(*) FROM public.student_grades), 0::bigint);
 SELECT q.eq('G','G-06c','ผู้ใช้ที่ยังไม่ล็อกอินอ่านรายวิชา','ได้ 0 แถว',
   (SELECT count(*) FROM public.courses), 0::bigint);
-SELECT q.eq('G','G-06d','ผู้ใช้ที่ยังไม่ล็อกอินเรียก get_scan_roster ขอรายชื่อทั้งห้อง',
-  'ต้องได้ 0 แถว',
-  (SELECT count(*) FROM public.get_scan_roster(:'COURSE')), 0::bigint);
+-- หลังแก้ DEF-001 ถูกตัดสิทธิ์ตั้งแต่ชั้น GRANT จึงไม่ได้เข้าไปถึงตัวฟังก์ชันด้วยซ้ำ
+SELECT q.raises('G','G-06d','ผู้ใช้ที่ยังไม่ล็อกอินเรียก get_scan_roster ขอรายชื่อทั้งห้อง',
+  'ต้องถูกปฏิเสธตั้งแต่ชั้นสิทธิ์การเรียกฟังก์ชัน',
+  format('SELECT count(*) FROM public.get_scan_roster(%L::uuid)', :'COURSE'),
+  'permission denied');
 SELECT q.raises('G','G-06e','ผู้ใช้ที่ยังไม่ล็อกอินเรียกสรุปคะแนนของนักศึกษา','ต้องถูกปฏิเสธ',
   format('SELECT public.get_student_score_summary(%L::uuid, %L::uuid)', :'COURSE', :'STU1'),
   'permission denied');
