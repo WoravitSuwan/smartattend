@@ -418,3 +418,58 @@ SELECT q.ok('F','F-16d','แก้คะแนนหลังประกาศ�
     COALESCE((SELECT grade FROM public.course_final_grades
                WHERE course_id = :'COURSE' AND student_id = :'STU1'),'NULL')));
 RESET ROLE;
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- F-18 เกรดที่นักศึกษาเห็นต้องมาจากทะเบียนเกรดที่ประกาศ ไม่ใช่คำนวณใหม่ (DEF-005)
+--   ทดสอบด้วยเกรดพิเศษ "I" ซึ่งคำนวณจากคะแนนไม่ได้เลย
+--   ถ้าหน้าจอยังคำนวณเกรดเองอยู่ จะแสดงตัวอักษรอื่นที่ไม่ใช่ I ทันที
+-- ───────────────────────────────────────────────────────────────────────────
+RESET ROLE;
+UPDATE public.course_final_grades
+   SET grade = 'I', grade_source = 'incomplete'
+ WHERE course_id = :'COURSE' AND student_id = :'STU2';
+SELECT q.act_as(:'STU2');
+SET ROLE authenticated;
+
+SELECT q.eq('F','F-18a','อาจารย์ให้เกรดพิเศษ I แล้วนักศึกษาต้องเห็น I','grade = I',
+  public.get_student_score_summary(:'COURSE')->>'grade', 'I');
+SELECT q.eq('F','F-18b','ต้องบอกได้ว่าเกรดนี้มาจากทะเบียนที่ประกาศแล้ว','grade_source = published',
+  public.get_student_score_summary(:'COURSE')->>'grade_source', 'published');
+SELECT q.ok('F','F-18c','เกรดที่เห็นต้องตรงกับทะเบียนเสมอ',
+  'summary.grade = course_final_grades.grade',
+  (public.get_student_score_summary(:'COURSE')->>'grade') IS NOT DISTINCT FROM
+  (SELECT grade FROM public.course_final_grades
+    WHERE course_id = :'COURSE' AND student_id = :'STU2'),
+  format('หน้าจอเห็น %s · ทะเบียนบันทึก %s',
+    COALESCE(public.get_student_score_summary(:'COURSE')->>'grade','NULL'),
+    COALESCE((SELECT grade FROM public.course_final_grades
+               WHERE course_id = :'COURSE' AND student_id = :'STU2'),'NULL')));
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- F-19 ก่อนประกาศผล นักศึกษาต้องไม่เห็นตัวอักษรเกรดใด ๆ แม้ตรวจครบแล้ว
+-- ───────────────────────────────────────────────────────────────────────────
+RESET ROLE;
+UPDATE public.courses SET final_grade_published = false, grades_locked = false
+ WHERE id = :'COURSE';
+SELECT q.act_as(:'STU1');
+SET ROLE authenticated;
+
+SELECT q.ok('F','F-19a','ยังไม่ประกาศผล นักศึกษาต้องไม่เห็นตัวอักษรเกรด','grade = NULL',
+  (public.get_student_score_summary(:'COURSE')->>'grade') IS NULL,
+  COALESCE(public.get_student_score_summary(:'COURSE')->>'grade','NULL'));
+SELECT q.ok('F','F-19b','ยังไม่ประกาศผล grade_is_final ต้องเป็นเท็จ','grade_is_final = false',
+  (public.get_student_score_summary(:'COURSE')->>'grade_is_final')::boolean = false,
+  (public.get_student_score_summary(:'COURSE')->>'grade_is_final'));
+
+-- อาจารย์ยังต้องเห็นเกรดที่คำนวณได้ เพื่อใช้ตรวจก่อนประกาศ แต่ต้องบอกว่าเป็นค่าชั่วคราว
+RESET ROLE;
+SELECT q.act_as(:'INS');
+SET ROLE authenticated;
+SELECT q.eq('F','F-19c','ก่อนประกาศผล อาจารย์ยังเห็นเกรดที่คำนวณได้','grade_source = preview',
+  public.get_student_score_summary(:'COURSE', :'STU1')->>'grade_source', 'preview');
+SELECT q.ok('F','F-19d','เกรดที่อาจารย์เห็นก่อนประกาศต้องไม่ถูกนับว่าเป็นเกรดสุดท้าย',
+  'grade_is_final = false',
+  (public.get_student_score_summary(:'COURSE', :'STU1')->>'grade_is_final')::boolean = false,
+  (public.get_student_score_summary(:'COURSE', :'STU1')->>'grade_is_final'));
+
+RESET ROLE;

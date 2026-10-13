@@ -42,6 +42,18 @@ export interface ScoreSummary {
   final_published: boolean;
   /** ตัวอักษรเกรด — null เมื่อยังไม่ถึงเวลาที่จะบอกได้ */
   grade: string | null;
+  /**
+   * เกรดที่ได้มาจากไหน
+   *   'published' อ่านจากทะเบียนเกรดที่ประกาศแล้ว (course_final_grades) เชื่อถือได้
+   *   'preview'   คำนวณให้อาจารย์ดูก่อนประกาศ ยังเปลี่ยนได้
+   *   null        ยังไม่มีเกรดให้แสดง
+   *
+   * ก่อนแก้ DEF-005 ฟังก์ชันคำนวณเกรดใหม่ทุกครั้ง ทำให้หลังอาจารย์แก้คะแนน
+   * โดยยังไม่ประกาศผลใหม่ นักศึกษาเห็นเกรดที่ไม่ตรงกับที่ส่งทะเบียน
+   */
+  grade_source: 'published' | 'preview' | null;
+  /** คะแนนรวม ณ เวลาที่ประกาศผล — null เมื่อยังไม่ประกาศ */
+  published_score: number | null;
   grade_is_final: boolean;
   attendance_blocked: boolean;
 }
