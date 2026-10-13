@@ -268,6 +268,18 @@ GRANT EXECUTE ON FUNCTION public.attendance_score_detail(uuid, uuid) TO authenti
 -- 4. เขียนคะแนนเข้าเรียนลงตารางคะแนน
 --    แทน recalc_attendance_scores เดิมทั้งหมด
 -- ───────────────────────────────────────────────────────────────────────────
+-- ───────────────────────────────────────────────────────────────────────────
+-- DEF-007 — ต้อง DROP ก่อน ไม่งั้น migration ชุดนี้เล่นซ้ำจากฐานข้อมูลว่างไม่ได้
+--
+-- CREATE OR REPLACE FUNCTION เปลี่ยน "ชนิดที่คืน" ของฟังก์ชันเดิมไม่ได้
+-- 20260926090000 สร้างฟังก์ชันนี้เป็น RETURNS void ไฟล์นี้เปลี่ยนเป็น
+-- RETURNS jsonb การเล่นซ้ำจึงล้มด้วย "cannot change return type of existing function"
+--
+-- การเพิ่ม DROP ตรงนี้ไม่กระทบฐานข้อมูลที่ใช้งานอยู่ เพราะไฟล์นี้ถูกบันทึกว่า
+-- apply ไปแล้ว และลายเซ็นกับเนื้อฟังก์ชันที่ได้ท้ายสุดเหมือนเดิมทุกประการ
+-- ───────────────────────────────────────────────────────────────────────────
+DROP FUNCTION IF EXISTS public.recalc_attendance_scores(uuid);
+
 CREATE OR REPLACE FUNCTION public.recalc_attendance_scores(_course_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql

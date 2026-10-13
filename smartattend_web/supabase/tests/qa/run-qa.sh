@@ -78,20 +78,10 @@ if [ "$FRESH" = "1" ]; then
   "${PSQL[@]}" -f "$SQLDIR/00_shim.sql" 2>&1 | grep -viE 'notice|warning|hint:' || true
 
   echo "── apply migration ทั้งหมดตามลำดับ ($(ls "$MIGRATIONS"/*.sql | wc -l) ไฟล์)"
-  # ── ข้อบกพร่องที่ทำให้ replay จากฐานว่างไม่ผ่าน ──
-  #   DEF-001 v_attendance_summary เปลี่ยนชนิดคอลัมน์ bigint→int→bigint
-  #           ด้วย CREATE OR REPLACE VIEW ซึ่ง PostgreSQL ไม่อนุญาต
-  #   DEF-002 recalc_attendance_scores เปลี่ยน RETURNS void→jsonb
-  #           ด้วย CREATE OR REPLACE FUNCTION ซึ่ง PostgreSQL ไม่อนุญาต
-  #   ที่นี่ DROP ให้ก่อนเพื่อให้สร้างสคีมาต่อได้ และบันทึกเป็นข้อบกพร่องไว้
-  #   รายละเอียดอยู่ใน docs/ข้อบกพร่องที่พบ.md
+  # เคยต้อง DROP ชดเชยก่อน apply สามไฟล์ เพราะ DEF-007 ทำให้เล่นซ้ำจากฐานว่าง
+  # ไม่ผ่าน ตอนนี้แก้ที่ต้นเหตุแล้ว (ใส่ DROP ไว้ในตัว migration เอง)
+  # จึง apply ตรง ๆ ได้ ถ้าไฟล์ใดล้มแปลว่า DEF-007 กลับมาอีก
   for f in "$MIGRATIONS"/*.sql; do
-    case "$(basename "$f")" in
-      20260927100000_*|20260929021502_*)
-        "${PSQL[@]}" -c 'DROP VIEW IF EXISTS public.v_attendance_summary CASCADE;' ;;
-      20260927230000_*)
-        "${PSQL[@]}" -c 'DROP FUNCTION IF EXISTS public.recalc_attendance_scores(uuid) CASCADE;' ;;
-    esac
     "${PSQL[@]}" -f "$f" >/dev/null 2>&1 || {
       echo "   ✗ apply ไม่ผ่าน: $(basename "$f")"
       "${PSQL[@]}" -f "$f" 2>&1 | grep ERROR | head -3
