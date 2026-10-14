@@ -35,6 +35,27 @@
 --
 --  คง REVOKE ALL FROM PUBLIC, anon และ GRANT TO authenticated, service_role
 --  ไว้เหมือนเดิมทั้งสองฟังก์ชัน
+--
+--  เพิ่มเติม — ทางสำรองสำหรับคีย์ที่ไม่ใช่ JWT
+--    ลำพังการใส่ NULLIF แก้แค่ "ไม่ให้พัง" แต่ผู้เรียกที่ไม่มี claims จะได้
+--    _jwt_role เป็นสตริงว่าง แล้วถูกปฏิเสธด้วย unauthorized / forbidden อยู่ดี
+--    อุปกรณ์ที่ถือคีย์แบบใหม่จึงยังเช็คชื่อและส่ง heartbeat ไม่ได้
+--    (ทดสอบยืนยันแล้ว ก่อนใส่ทางสำรองได้ unauthorized และ forbidden ตามลำดับ)
+--
+--    จึงอ่าน role จากสองทางตามลำดับ เหมือนที่ get_scan_roster ทำอยู่แล้ว
+--      1. request.jwt.claims ->> 'role'   ใช้กับคีย์แบบ JWT เดิม
+--      2. current_setting('role')         PostgREST สั่ง SET ROLE ตามคีย์ที่ใช้
+--                                         ครอบคลุมคีย์แบบใหม่ (sb_secret_...)
+--    current_setting('role') คืน 'none' เมื่อไม่ได้ SET ROLE จึงต้อง NULLIF ด้วย
+--
+--    ไม่หย่อนความปลอดภัย เพราะ PostgREST สั่ง SET ROLE service_role ให้เฉพาะ
+--    ผู้ที่ถือ service key จริงเท่านั้น ผู้ใช้ทั่วไปได้ authenticated และผู้ที่
+--    ยังไม่ล็อกอินได้ anon ซึ่งทั้งคู่ไม่เท่ากับ service_role
+--
+--    ตรวจแล้วว่า _jwt_role ถูกใช้เพียงสองจุดคือการเทียบ <> 'service_role'
+--    (บรรทัด 60 และ 178 ของไฟล์เดิม) การเปลี่ยนที่มาของค่าจึงไม่กระทบตรรกะอื่น
+--    ผู้ใช้ทั่วไปเดิมได้ค่าว่าง ตอนนี้ได้ 'authenticated' ซึ่งไม่เท่ากับ
+--    'service_role' เหมือนกัน ผลลัพธ์จึงเท่าเดิมทุกประการ
 -- ═══════════════════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION public.record_attendance(
@@ -50,7 +71,9 @@ SET search_path = public
 AS $$
 DECLARE
   _jwt_role text := COALESCE(
-    NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role', '');
+    NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role',
+    NULLIF(current_setting('role', true), 'none'),
+    '');
   _uid uuid := auth.uid();
   _course_id uuid;
   _started_at timestamptz;
@@ -177,7 +200,9 @@ SET search_path = public
 AS $$
 DECLARE
   _jwt_role text := COALESCE(
-    NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role', '');
+    NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role',
+    NULLIF(current_setting('role', true), 'none'),
+    '');
   _now timestamptz := now();
 BEGIN
   -- เขียนได้จากอุปกรณ์ (service key) หรือแอดมินเท่านั้น
