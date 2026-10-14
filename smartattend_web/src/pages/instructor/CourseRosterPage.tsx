@@ -36,6 +36,34 @@ const statusStyle: Record<Enrollment['status'], { label: string; cls: string; ic
   declined: { label: 'ปฏิเสธ', cls: 'bg-muted text-muted-foreground border-border', icon: XCircle },
 };
 
+/**
+ * ป้ายสถานะของนักศึกษาหนึ่งคน ใช้ร่วมกันทั้งแบบตารางและแบบการ์ด
+ *
+ * แยกออกมาเพื่อไม่ให้ต้องเขียนเงื่อนไขเดียวกันสองที่ แล้วค่อย ๆ เพี้ยนออกจากกัน
+ * ทุกป้ายตั้ง whitespace-nowrap ไว้ เพราะบนจอแคบคำว่า "ไม่พบในระบบ" เคยถูก
+ * บีบจนแตกเป็นสามบรรทัดอ่านไม่ออก
+ */
+const StatusBadges = ({ r }: { r: Enrollment }) => {
+  const s = statusStyle[r.status];
+  const Icon = s.icon;
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <span className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border whitespace-nowrap ${s.cls}`}>
+        <Icon className="w-3 h-3 shrink-0" /> {s.label}
+      </span>
+      {r.attendance_blocked ? (
+        <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border whitespace-nowrap bg-destructive/15 text-destructive border-destructive/30">
+          <AlertCircle className="w-3 h-3 shrink-0" /> ขาด {r.absent_count} ครั้ง · ระงับสิทธิ์
+        </span>
+      ) : r.absent_count > 0 && (
+        <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border whitespace-nowrap bg-warning/15 text-warning border-warning/30">
+          ขาด {r.absent_count} ครั้ง
+        </span>
+      )}
+    </div>
+  );
+};
+
 export default function CourseRosterPage() {
   const ask = useConfirm();
   const navigate = useNavigate();
@@ -272,7 +300,57 @@ export default function CourseRosterPage() {
                   </div>
                 </div>
               )}
-              <div className="max-h-[60vh] overflow-y-auto">
+              {/* จอแคบ: การ์ดเรียงลงมา หนึ่งคนหนึ่งการ์ด
+                  ตารางหกคอลัมน์บีบไม่ลงในความกว้างระดับมือถือ ชื่อภาษาไทยจะถูก
+                  หั่นเหลือบรรทัดละหนึ่งถึงสองตัวอักษรจนอ่านไม่ออก */}
+              <div className="md:hidden max-h-[60vh] overflow-y-auto divide-y divide-border/60">
+                {rows.length === 0 ? (
+                  <p className="px-4 py-10 text-center text-xs text-muted-foreground">
+                    ยังไม่มีนักศึกษาในวิชานี้
+                  </p>
+                ) : rows.map((r, i) => (
+                  <motion.div key={r.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    className="px-3 py-3 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <span className="text-[11px] text-muted-foreground w-5 shrink-0 pt-0.5">{i + 1}</span>
+                      <div className="min-w-0 flex-1">
+                        {/* ชื่อยาวให้ตัดท้ายด้วยจุดไข่ปลา และกดค้างดูชื่อเต็มได้
+                            ดีกว่าปล่อยให้ตัดกลางคำจนอ่านไม่ออก */}
+                        <p className="text-xs font-medium text-foreground truncate"
+                          title={r.student_name_raw ?? ''}>
+                          {r.student_name_raw}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground font-mono truncate">
+                          {r.student_code_raw}
+                          {r.student_id && phoneByStudent[r.student_id]
+                            ? ` · ${phoneByStudent[r.student_id]}` : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="pl-7">
+                      <StatusBadges r={r} />
+                    </div>
+                    {!isAdminView && (
+                      <div className="pl-7 flex gap-1">
+                        {r.status === 'unmatched' && (
+                          <button onClick={() => setMatchOpen(r)}
+                            className="inline-flex items-center gap-1 h-7 px-2 rounded-lg border border-border text-[11px] text-foreground hover:bg-muted whitespace-nowrap">
+                            <Link2 className="w-3 h-3 shrink-0" /> จับคู่
+                          </button>
+                        )}
+                        <button onClick={() => deleteRow(r)} aria-label="ลบนักศึกษาออกจากวิชานี้"
+                          className="inline-flex items-center gap-1 h-7 px-2 rounded-lg border border-destructive/40 text-[11px] text-destructive hover:bg-destructive/10 whitespace-nowrap">
+                          <Trash2 className="w-3 h-3 shrink-0" /> ลบ
+                        </button>
+                      </div>
+                    )}
+                  </motion.div>
+                ))}
+              </div>
+
+              {/* overflow-x-auto กันไว้ที่ตัวตาราง ไม่ให้ดันจนทั้งหน้าเลื่อนข้าง
+                  ถ้าที่ความกว้างระดับ md พอดี ๆ แล้วหกคอลัมน์ยังไม่พอ */}
+              <div className="hidden md:block max-h-[60vh] overflow-y-auto overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead className="bg-muted/50 sticky top-0">
                     <tr className="text-left text-muted-foreground">
@@ -287,52 +365,40 @@ export default function CourseRosterPage() {
                   <tbody>
                     {rows.length === 0 ? (
                       <tr><td colSpan={isAdminView ? 5 : 6} className="px-3 py-10 text-center text-muted-foreground">ยังไม่มีนักศึกษาในวิชานี้</td></tr>
-                    ) : rows.map((r, i) => {
-                      const s = statusStyle[r.status];
-                      const Icon = s.icon;
-                      return (
-                        <motion.tr key={r.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="border-t border-border/60">
-                          <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
-                          <td className="px-3 py-2 font-mono text-foreground">{r.student_code_raw}</td>
-                          <td className="px-3 py-2 text-foreground">{r.student_name_raw}</td>
-                          <td className="px-3 py-2 text-muted-foreground font-mono">
-                            {r.student_id ? (phoneByStudent[r.student_id] ?? '-') : '-'}
-                          </td>
+                    ) : rows.map((r, i) => (
+                      <motion.tr key={r.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="border-t border-border/60">
+                        <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
+                        <td className="px-3 py-2 font-mono text-foreground whitespace-nowrap">{r.student_code_raw}</td>
+                        {/* กันชื่อยาวดันคอลัมน์อื่นจนบีบ ให้ตัดท้ายแล้วดูเต็มได้จากการชี้ */}
+                        <td className="px-3 py-2 text-foreground max-w-[14rem]">
+                          <span className="block truncate" title={r.student_name_raw ?? ''}>
+                            {r.student_name_raw}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground font-mono whitespace-nowrap">
+                          {r.student_id ? (phoneByStudent[r.student_id] ?? '-') : '-'}
+                        </td>
+                        <td className="px-3 py-2">
+                          <StatusBadges r={r} />
+                        </td>
+                        {!isAdminView && (
                           <td className="px-3 py-2">
-                            <div className="flex flex-wrap items-center gap-1">
-                              <span className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border ${s.cls}`}>
-                                <Icon className="w-3 h-3" /> {s.label}
-                              </span>
-                              {r.attendance_blocked ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border bg-destructive/15 text-destructive border-destructive/30">
-                                  <AlertCircle className="w-3 h-3" /> ขาด {r.absent_count} ครั้ง — ระงับสิทธิ์
-                                </span>
-                              ) : r.absent_count > 0 && (
-                                <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border bg-warning/15 text-warning border-warning/30">
-                                  ขาด {r.absent_count} ครั้ง
-                                </span>
+                            <div className="flex justify-end gap-1">
+                              {r.status === 'unmatched' && (
+                                <button onClick={() => setMatchOpen(r)}
+                                  className="inline-flex items-center gap-1 h-7 px-2 rounded-lg border border-border text-[11px] text-foreground hover:bg-muted whitespace-nowrap">
+                                  <Link2 className="w-3 h-3 shrink-0" /> จับคู่
+                                </button>
                               )}
+                              <button onClick={() => deleteRow(r)} aria-label="ลบนักศึกษาออกจากวิชานี้"
+                                className="inline-flex items-center justify-center h-7 w-7 rounded-lg border border-destructive/40 text-destructive hover:bg-destructive/10">
+                                <Trash2 className="w-3 h-3 shrink-0" />
+                              </button>
                             </div>
                           </td>
-                          {!isAdminView && (
-                            <td className="px-3 py-2">
-                              <div className="flex justify-end gap-1">
-                                {r.status === 'unmatched' && (
-                                  <button onClick={() => setMatchOpen(r)}
-                                    className="inline-flex items-center gap-1 h-7 px-2 rounded-lg border border-border text-[11px] text-foreground hover:bg-muted">
-                                    <Link2 className="w-3 h-3" /> จับคู่
-                                  </button>
-                                )}
-                                <button onClick={() => deleteRow(r)}
-                                  className="inline-flex items-center gap-1 h-7 px-2 rounded-lg border border-destructive/40 text-[11px] text-destructive hover:bg-destructive/10">
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </div>
-                            </td>
-                          )}
-                        </motion.tr>
-                      );
-                    })}
+                        )}
+                      </motion.tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
