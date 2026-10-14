@@ -16,12 +16,14 @@ import {
   ArrowRight, Plus, FileText, Calendar, Users, Trash2, Loader2, X, Paperclip,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirm } from '@/lib/confirm-context';
 
 interface Course { id: string; code: string; name: string }
 
 /** หน้าจัดการงาน — ถ้าส่ง embeddedCourseId มา จะทำงานเป็นส่วนหนึ่งของหน้า
  *  รายละเอียดรายวิชา (ล็อกวิชาไว้ ไม่ต้องมีแถบเลือกวิชา และไม่ครอบ layout ซ้ำ) */
 const AssignmentManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string } = {}) => {
+  const ask = useConfirm();
   const { user } = useAuth();
   const embedded = !!embeddedCourseId;
   const navigate = useNavigate();
@@ -166,7 +168,22 @@ const AssignmentManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: str
   };
 
   const remove = async (id: string) => {
-    if (!confirm('ลบงานนี้และผลการส่งทั้งหมด?')) return;
+    const a = assignments.find(x => x.id === id);
+    // ลบงานแล้วผลการส่งของนักศึกษาทุกคนหายตามไปด้วย ซึ่งกู้คืนไม่ได้
+    // จึงบังคับพิมพ์ชื่องานยืนยัน กันการกดผิดแถวในรายการงานที่มีหลายชิ้น
+    if (!await ask({
+      title: 'ลบงานและผลการส่งทั้งหมด',
+      description: (
+        <>
+          {a?.title && <p>{a.title}</p>}
+          <p>ไฟล์และคะแนนที่นักศึกษาส่งไว้ในงานชิ้นนี้จะถูกลบทั้งหมด</p>
+          <p>การลบนี้ย้อนกลับไม่ได้</p>
+        </>
+      ),
+      requireText: a?.title ?? null,
+      requireTextLabel: `พิมพ์ชื่องาน "${a?.title ?? ''}" เพื่อยืนยัน`,
+      choices: [{ value: 'confirm', label: 'ลบงานนี้', tone: 'danger' }],
+    })) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error } = await (supabase as any).from('assignments').delete().eq('id', id);
     if (error) { toast.error('ลบไม่สำเร็จ'); return; }

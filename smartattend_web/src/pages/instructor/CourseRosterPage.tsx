@@ -7,6 +7,7 @@ import MobileLayout from '@/components/MobileLayout';
 import { supabase } from '@/integrations/supabase/client';
 import { db } from '@/integrations/supabase/untyped';
 import { useAuth } from '@/lib/auth-context';
+import { useConfirm } from '@/lib/confirm-context';
 
 interface Course {
   id: string;
@@ -36,6 +37,7 @@ const statusStyle: Record<Enrollment['status'], { label: string; cls: string; ic
 };
 
 export default function CourseRosterPage() {
+  const ask = useConfirm();
   const navigate = useNavigate();
   const { user } = useAuth();
   const { courseId: forcedCourseId } = useParams<{ courseId?: string }>();
@@ -139,14 +141,37 @@ export default function CourseRosterPage() {
   };
 
   const deleteRow = async (r: Enrollment) => {
-    if (!confirm(`ลบ ${r.student_code_raw} ${r.student_name_raw} ออกจากวิชานี้?`)) return;
+    if (!await ask({
+      title: 'ลบนักศึกษาออกจากวิชานี้',
+      description: (
+        <>
+          <p>{r.student_code_raw} {r.student_name_raw}</p>
+          <p>นักศึกษาคนนี้จะไม่อยู่ในรายชื่อของวิชานี้อีก และสแกนเช็คชื่อในคาบของวิชานี้ไม่ได้</p>
+        </>
+      ),
+      choices: [{ value: 'confirm', label: 'ลบออกจากวิชา', tone: 'danger' }],
+    })) return;
     const { error } = await db.from('course_enrollments').delete().eq('id', r.id);
     if (error) toast.error(error.message); else toast.success('ลบแล้ว');
   };
 
   const deleteCourse = async () => {
     if (!selectedCourse) return;
-    if (!confirm(`ลบวิชา ${selectedCourse.code} ${selectedCourse.name} ทั้งวิชา?\nรายชื่อนักศึกษาทั้งหมดในวิชานี้จะถูกลบตามไปด้วย การกระทำนี้ย้อนกลับไม่ได้`)) return;
+    // ลบทั้งวิชาเป็นการกระทำที่เสียหายมากที่สุดในหน้านี้ และอยู่ใกล้ปุ่มแก้ไข
+    // จึงบังคับพิมพ์รหัสวิชายืนยัน ไม่ให้กดพลาดแล้วจบ
+    if (!await ask({
+      title: 'ลบรายวิชาทั้งวิชา',
+      description: (
+        <>
+          <p>{selectedCourse.code} {selectedCourse.name}</p>
+          <p>รายชื่อนักศึกษาทั้งหมดในวิชานี้จะถูกลบตามไปด้วย</p>
+          <p>การกระทำนี้ย้อนกลับไม่ได้</p>
+        </>
+      ),
+      requireText: selectedCourse.code ?? null,
+      requireTextLabel: `พิมพ์รหัสวิชา "${selectedCourse.code ?? ''}" เพื่อยืนยัน`,
+      choices: [{ value: 'confirm', label: 'ลบทั้งวิชา', tone: 'danger' }],
+    })) return;
     // Explicitly delete enrollments first in case FK is not cascading
     await db.from('course_enrollments').delete().eq('course_id', selectedCourse.id);
     const { error } = await db.from('courses').delete().eq('id', selectedCourse.id);

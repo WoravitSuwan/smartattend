@@ -3,6 +3,7 @@ import { Search, Trash2, UserPlus, Filter, Loader2, Shield, GraduationCap, User 
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { logAudit } from '@/lib/audit-log';
+import { useConfirm } from '@/lib/confirm-context';
 
 type Role = 'admin' | 'instructor' | 'student';
 type Tab = 'users' | 'requests';
@@ -34,6 +35,7 @@ const ROLE_SECTIONS: { role: Role; label: string }[] = [
 ];
 
 export default function AdminUsersPage() {
+  const ask = useConfirm();
   const [tab, setTab] = useState<Tab>('users');
   const [q, setQ] = useState('');
   const [rows, setRows] = useState<Row[]>([]);
@@ -129,7 +131,21 @@ export default function AdminUsersPage() {
   };
 
   const handleDelete = async (row: Row) => {
-    if (!confirm(`ลบผู้ใช้ ${row.name ?? row.email} อย่างถาวร?\n(รวมโปรไฟล์ บทบาท รูปใบหน้า และบัญชี login)`)) return;
+    // ลบบัญชีผู้ใช้ย้อนกลับไม่ได้เลย จึงบังคับพิมพ์อีเมลที่เห็นอยู่บนแถวยืนยัน
+    // เพื่อกันการกดผิดแถว ซึ่งเป็นความผิดพลาดที่เกิดง่ายที่สุดในตารางยาว ๆ
+    if (!await ask({
+      title: 'ลบผู้ใช้ออกจากระบบถาวร',
+      description: (
+        <>
+          <p>{row.name ?? row.email}</p>
+          <p>สิ่งที่จะถูกลบไปด้วย โปรไฟล์ บทบาท รูปใบหน้า และบัญชีเข้าสู่ระบบ</p>
+          <p>การลบนี้ย้อนกลับไม่ได้</p>
+        </>
+      ),
+      requireText: row.email ?? null,
+      requireTextLabel: `พิมพ์อีเมล "${row.email ?? ''}" เพื่อยืนยัน`,
+      choices: [{ value: 'confirm', label: 'ลบผู้ใช้ถาวร', tone: 'danger' }],
+    })) return;
     try {
       const before = { ...row };
       const { data, error } = await supabase.functions.invoke('admin-delete-user', {
@@ -149,7 +165,20 @@ export default function AdminUsersPage() {
   };
 
   const reviewRequest = async (req: RoleRequest, decision: 'approve' | 'reject') => {
-    if (!confirm(`${decision === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอเป็นอาจารย์ของ ${req.profile?.name ?? req.profile?.email ?? req.user_id}?`)) return;
+    // ปุ่มอนุมัติกับปฏิเสธแยกกันอยู่แล้วในตาราง ผู้ดูแลจึงเลือกมาก่อนถึงจะมาถึงตรงนี้
+    // ไดอะล็อกนี้จึงยืนยันสิ่งที่เลือกไว้ ไม่ใช่ให้เลือกซ้ำอีกรอบ
+    const who = req.profile?.name ?? req.profile?.email ?? 'ผู้ใช้รายนี้';
+    if (!await ask({
+      title: decision === 'approve' ? 'อนุมัติคำขอเป็นอาจารย์' : 'ปฏิเสธคำขอเป็นอาจารย์',
+      description: decision === 'approve'
+        ? `${who} จะได้สิทธิ์อาจารย์ สร้างรายวิชา เปิดคาบเรียน และดูข้อมูลนักศึกษาในวิชาของตัวเองได้`
+        : `${who} จะยังเป็นนักศึกษาตามเดิม และยื่นคำขอใหม่ได้ภายหลัง`,
+      choices: [{
+        value: 'confirm',
+        label: decision === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ',
+        tone: decision === 'approve' ? 'primary' : 'danger',
+      }],
+    })) return;
     setBusy(true);
     try {
       const { data, error } = await supabase.functions.invoke('admin-review-role-request', {

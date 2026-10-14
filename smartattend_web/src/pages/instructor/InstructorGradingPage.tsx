@@ -15,6 +15,7 @@ import {
   Save, ShieldCheck, ShieldOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirm } from '@/lib/confirm-context';
 
 interface Course { id: string; code: string; name: string }
 
@@ -35,6 +36,7 @@ const FILTERS: { key: Filter; label: string }[] = [
  * ส่วนที่แสดงคะแนนดิบ ที่ถูกหักเพราะส่งช้า และคะแนนสุทธิ ยกมาทั้งก้อนไม่แก้
  */
 const InstructorGradingPage = () => {
+  const ask = useConfirm();
   const { user } = useAuth();
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState('');
@@ -145,12 +147,28 @@ const InstructorGradingPage = () => {
   /** ยกเว้น/ยกเลิกยกเว้นการหักคะแนนส่งช้าเป็นรายคน ต้องระบุเหตุผลเมื่อยกเว้น */
   const toggleWaiver = async (s: SubmissionRow) => {
     if (!s.late_penalty_waived) {
-      const reason = window.prompt(
-        `ยกเว้นการหักคะแนนส่งช้าของ ${s.studentName ?? 'นักศึกษา'} (ส่งช้า ${s.late_days ?? 0} วัน)\n\nระบุเหตุผล (บันทึกลงประวัติ):`);
-      if (reason == null) return;
-      if (!reason.trim()) { toast.error('ต้องระบุเหตุผลในการยกเว้น'); return; }
+      // เดิมใช้ window.prompt ซึ่งตรวจไม่ได้ว่ากรอกหรือยังจนกว่าจะกดตกลงไปแล้ว
+      // ตอนนี้ปุ่มยืนยันจะกดไม่ได้เลยถ้าช่องเหตุผลยังว่าง จึงไม่มีทางส่งค่าว่างไป
+      const answer = await ask({
+        title: 'ยกเว้นการหักคะแนนส่งช้า',
+        description: (
+          <>
+            <p>{s.studentName ?? 'นักศึกษา'} · ส่งช้า {s.late_days ?? 0} วัน</p>
+            <p>เหตุผลที่กรอกจะถูกบันทึกลงประวัติ และตรวจสอบย้อนหลังได้</p>
+          </>
+        ),
+        input: {
+          label: 'เหตุผลในการยกเว้น',
+          placeholder: 'เช่น ป่วยมีใบรับรองแพทย์ หรือระบบขัดข้องตอนส่งงาน',
+          required: true,
+          multiline: true,
+          maxLength: 300,
+        },
+        choices: [{ value: 'confirm', label: 'ยกเว้นการหักคะแนน', tone: 'primary' }],
+      });
+      if (!answer) return;
       setWaivingId(s.id);
-      const { error } = await waiveLatePenalty(s.id, true, reason.trim());
+      const { error } = await waiveLatePenalty(s.id, true, answer.value);
       setWaivingId(null);
       if (error) { toast.error(error.message || 'ยกเว้นไม่สำเร็จ'); return; }
       toast.success('ยกเว้นการหักคะแนนแล้ว คะแนนในตารางคะแนนถูกปรับตามทันที');

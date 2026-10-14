@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Database, CheckCircle2, AlertCircle, Trash2, Loader2, ImageIcon, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { useConfirm } from '@/lib/confirm-context';
 
 interface FaceImage {
   id: string;
@@ -26,6 +27,7 @@ interface StudentGroup {
 }
 
 export default function AdminDatasetsPage() {
+  const ask = useConfirm();
   const [images, setImages] = useState<FaceImage[]>([]);
   const [loading, setLoading] = useState(false);
   const [viewing, setViewing] = useState<StudentGroup | null>(null);
@@ -76,7 +78,21 @@ export default function AdminDatasetsPage() {
   const readyCount = groups.filter(g => g.count >= 30).length;
 
   const deleteAllOf = async (g: StudentGroup) => {
-    if (!confirm(`ลบรูปทั้งหมด ${g.count} รูป ของ ${g.student_name}?`)) return;
+    // ลบคลังใบหน้าทั้งชุดแล้วนักศึกษาคนนั้นจะสแกนเช็คชื่อไม่ได้จนกว่าจะถ่ายใหม่
+    // จึงบังคับพิมพ์รหัสนักศึกษายืนยัน กันการกดผิดคนในรายการยาว
+    if (!await ask({
+      title: 'ลบคลังภาพใบหน้าทั้งชุด',
+      description: (
+        <>
+          <p>{g.student_name} · {g.count} รูป</p>
+          <p>นักศึกษาคนนี้จะสแกนใบหน้าเช็คชื่อไม่ได้ จนกว่าจะลงทะเบียนใบหน้าใหม่</p>
+          <p>การลบนี้ย้อนกลับไม่ได้</p>
+        </>
+      ),
+      requireText: g.student_id ?? null,
+      requireTextLabel: `พิมพ์รหัสนักศึกษา "${g.student_id ?? ''}" เพื่อยืนยัน`,
+      choices: [{ value: 'confirm', label: 'ลบทั้งชุด', tone: 'danger' }],
+    })) return;
     try {
       const q = supabase.from('face_images').delete();
       const { error } = g.user_id
@@ -93,7 +109,12 @@ export default function AdminDatasetsPage() {
   };
 
   const deleteOne = async (img: FaceImage) => {
-    if (!confirm('ลบรูปนี้?')) return;
+    if (!await ask({
+      title: 'ลบรูปนี้',
+      description: 'รูปเดียวจากคลังใบหน้าของนักศึกษาคนนี้ ยิ่งเหลือรูปน้อย '
+        + 'ความแม่นยำในการจดจำจะยิ่งลดลง',
+      choices: [{ value: 'confirm', label: 'ลบรูป', tone: 'danger' }],
+    })) return;
     try {
       const { error } = await supabase.from('face_images').delete().eq('id', img.id);
       if (error) throw error;

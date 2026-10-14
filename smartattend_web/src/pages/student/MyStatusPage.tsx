@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import MobileLayout from '@/components/MobileLayout';
 import { useAuth } from '@/lib/auth-context';
+import { useConfirm } from '@/lib/confirm-context';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchMyRegStatus, type RegistrationStatus } from '@/lib/registration-status';
 import { Loader2, ScanFace, CheckCircle2, Clock, XCircle, RefreshCw, X, Camera } from 'lucide-react';
@@ -44,6 +45,7 @@ const fmt = (iso: string) =>
 
 export default function MyStatusPage() {
   const { user } = useAuth();
+  const ask = useConfirm();
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
@@ -114,7 +116,16 @@ export default function MyStatusPage() {
 
   const handleReRegister = async () => {
     if (!user?.id) return;
-    if (!window.confirm('ระบบจะลบภาพใบหน้าเดิมทั้งหมดของคุณ แล้วให้ถ่ายใหม่ ต้องการดำเนินการต่อหรือไม่?')) return;
+    // ลบแล้วเรียกคืนไม่ได้ และต้องถ่ายใหม่ทั้งชุดก่อนจะเช็คชื่อด้วยใบหน้าได้อีก
+    // จึงบังคับพิมพ์รหัสนักศึกษายืนยัน เพื่อไม่ให้กดพลาดแล้วเสียสิทธิ์สแกนไปเฉย ๆ
+    if (!await ask({
+      title: 'ลงทะเบียนใบหน้าใหม่',
+      description: 'ภาพใบหน้าเดิมทั้งหมดจะถูกลบและเรียกคืนไม่ได้ '
+        + 'ระหว่างที่ยังถ่ายชุดใหม่ไม่ครบ จะใช้ระบบสแกนใบหน้าเช็คชื่อไม่ได้',
+      requireText: user.studentId ?? null,
+      requireTextLabel: `พิมพ์รหัสนักศึกษา "${user.studentId ?? ''}" เพื่อยืนยัน`,
+      choices: [{ value: 'confirm', label: 'ลบภาพเดิมแล้วถ่ายใหม่', tone: 'danger' }],
+    })) return;
     setResetting(true);
     try {
       const { error: delErr } = await supabase.from('face_images').delete().eq('user_id', user.id);

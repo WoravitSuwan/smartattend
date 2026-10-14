@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth-context';
 import { useTheme } from '@/lib/theme-context';
 import { useNotifications } from '@/lib/notification-context';
+import { useConfirm } from '@/lib/confirm-context';
+import { toast } from 'sonner';
 import { Home, BookOpen, User, ClipboardList, LogOut, Sun, Moon, FileText, Bell, X, CheckCheck, CalendarOff, Upload, Users, Camera, ShieldCheck, Trash2, BellOff, MoreHorizontal } from 'lucide-react';
 import MoreMenuSheet, { type MoreMenuGroup } from '@/components/MoreMenuSheet';
 import { useViewMode } from '@/lib/view-mode-context';
@@ -127,6 +129,7 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
   const sidebarTabs = isInstructor
     ? [...instructorTabs, ...instructorSidebarExtras]
     : [...studentTabs, { path: '/student/history', icon: ClipboardList, label: 'ประวัติเข้าเรียน' }];
+  const ask = useConfirm();
   const [showNotifications, setShowNotifications] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -135,8 +138,15 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
     .slice(0, 20);
   const myUnread = myNotifications.filter(n => !n.read).length;
 
-  const handleClearAll = () => {
-    if (window.confirm('ลบการแจ้งเตือนทั้งหมด?')) clearAll();
+  const handleClearAll = async () => {
+    const n = myNotifications.length;
+    if (!await ask({
+      title: 'ลบการแจ้งเตือนทั้งหมด',
+      description: `รายการทั้ง ${n} รายการจะหายไป และเรียกกลับคืนไม่ได้`,
+      choices: [{ value: 'confirm', label: 'ลบทั้งหมด', tone: 'danger' }],
+    })) return;
+    clearAll();
+    toast.success('ลบการแจ้งเตือนทั้งหมดแล้ว');
   };
 
   const renderNotificationCard = (n: typeof myNotifications[number], i: number, useMotion: boolean) => {

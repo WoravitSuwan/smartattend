@@ -6,6 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { Loader2, PlayCircle, StopCircle, PauseCircle, Users, Clock, AlarmClock, Ban } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirm } from '@/lib/confirm-context';
 
 interface Course { id: string; code: string; name: string; section: string | null; }
 interface Session {
@@ -49,6 +50,7 @@ function formatCountdown(ms: number): string {
 }
 
 export default function StartClassTestPage() {
+  const ask = useConfirm();
   const { user } = useAuth();
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<string>('');
@@ -142,7 +144,18 @@ export default function StartClassTestPage() {
   const cancelClass = async () => {
     if (!selectedCourse) return;
     const course = courses.find(c => c.id === selectedCourse);
-    if (!window.confirm(`ยืนยันยกเลิกคลาส ${course?.code ?? ''} วันนี้? นักศึกษาที่ยืนยันเข้าร่วมทุกคนจะได้รับแจ้งเตือน`)) return;
+    if (!await ask({
+      title: 'ยกเลิกคลาสวันนี้',
+      description: (
+        <>
+          <p>{course?.code ?? ''} {course?.name ?? ''}</p>
+          <p>นักศึกษาที่ยืนยันเข้าร่วมทุกคนจะได้รับแจ้งเตือนทันที</p>
+          <p>คาบนี้จะไม่ถูกนับในคะแนนการเข้าเรียน</p>
+        </>
+      ),
+      choices: [{ value: 'confirm', label: 'ยกเลิกคลาสและแจ้งนักศึกษา', tone: 'danger' }],
+      cancelLabel: 'ไม่ยกเลิก',
+    })) return;
     setCancelling(true);
     try {
       const { data, error } = await supabase.rpc('cancel_class_announcement', {

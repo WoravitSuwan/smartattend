@@ -1,5 +1,6 @@
 import MobileLayout from '@/components/MobileLayout';
 import { useAuth } from '@/lib/auth-context';
+import { useConfirm } from '@/lib/confirm-context';
 import { logAudit } from '@/lib/audit-log';
 import { fetchEnrolledCourses } from '@/lib/attendance-data';
 import {
@@ -19,6 +20,7 @@ interface CourseOpt { id: string; code: string; name: string }
 
 const StudentLeavePage = () => {
   const { user } = useAuth();
+  const ask = useConfirm();
   const [courses, setCourses] = useState<CourseOpt[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -118,7 +120,12 @@ const StudentLeavePage = () => {
   };
 
   const handleCancel = async (leave: LeaveRequestRow) => {
-    if (!window.confirm('ยกเลิกใบลานี้?')) return;
+    if (!await ask({
+      title: 'ยกเลิกใบลานี้',
+      description: 'ใบลาจะถูกลบออกจากระบบ ถ้ายังต้องการลาต้องยื่นใบใหม่',
+      choices: [{ value: 'confirm', label: 'ยกเลิกใบลา', tone: 'danger' }],
+      cancelLabel: 'เก็บใบลาไว้',
+    })) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error } = await (supabase as any).from('leave_requests').delete().eq('id', leave.id);
     if (error) { toast.error('ยกเลิกไม่สำเร็จ'); return; }

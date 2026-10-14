@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/lib/theme-context";
 import { useAuth } from "@/lib/auth-context";
 import { NotificationProvider } from "@/lib/notification-context";
+import { ConfirmProvider } from "@/lib/confirm-context";
 import { ViewModeProvider } from "@/lib/view-mode-context";
 import {
   fetchMyRegStatus, getCurrentAuthUserId, subscribeRegStatuses,
@@ -189,10 +190,14 @@ const App = () => (
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
           <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <AppRoutes />
-            <InstallAppBanner />
+            {/* ไดอะล็อกยืนยันกลาง ต้องครอบทุกหน้าเพราะ useConfirm ถูกเรียกจาก
+                ทั้งหน้าแอดมิน อาจารย์ และนักศึกษา */}
+            <ConfirmProvider>
+              <Toaster />
+              <Sonner />
+              <AppRoutes />
+              <InstallAppBanner />
+            </ConfirmProvider>
           </TooltipProvider>
         </ThemeProvider>
       </QueryClientProvider>

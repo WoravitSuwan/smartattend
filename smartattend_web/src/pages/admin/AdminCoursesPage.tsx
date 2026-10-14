@@ -4,6 +4,7 @@ import { BookOpen, Plus, Pencil, Trash2, Users, X, Search, Upload } from 'lucide
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import BulkImportStudentsModal, { type ParsedRow } from '@/components/BulkImportStudentsModal';
+import { useConfirm } from '@/lib/confirm-context';
 
 interface Instructor {
   id: string;
@@ -40,6 +41,7 @@ const empty = (defaultInstructorId: string): Editable => ({
 });
 
 export default function AdminCoursesPage() {
+  const ask = useConfirm();
   const [list, setList] = useState<CourseRow[]>([]);
   const [instructors, setInstructors] = useState<Instructor[]>([]);
   const [enrolledStudents, setEnrolledStudents] = useState<Record<string, { studentId: string; name: string; code: string }[]>>({});
@@ -155,7 +157,20 @@ export default function AdminCoursesPage() {
   };
 
   const del = async (c: CourseRow) => {
-    if (!confirm(`ลบรายวิชา ${c.code}?`)) return;
+    // ลบรายวิชาแล้วข้อมูลที่ผูกอยู่หายตามทั้งหมด จึงบังคับพิมพ์รหัสวิชายืนยัน
+    if (!await ask({
+      title: 'ลบรายวิชาออกจากระบบ',
+      description: (
+        <>
+          <p>{c.code} {c.name}</p>
+          <p>รายชื่อนักศึกษา คาบเรียน การเข้าเรียน และคะแนนของวิชานี้จะถูกลบตามไปด้วย</p>
+          <p>การลบนี้ย้อนกลับไม่ได้</p>
+        </>
+      ),
+      requireText: c.code ?? null,
+      requireTextLabel: `พิมพ์รหัสวิชา "${c.code ?? ''}" เพื่อยืนยัน`,
+      choices: [{ value: 'confirm', label: 'ลบรายวิชา', tone: 'danger' }],
+    })) return;
     try {
       const { error } = await supabase.from('courses').delete().eq('id', c.id);
       if (error) throw error;
