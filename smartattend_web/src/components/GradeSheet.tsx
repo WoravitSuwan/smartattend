@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Lock } from 'lucide-react';
+import { toast } from 'sonner';
+import { Lock, PencilLine } from 'lucide-react';
 import {
   componentScore, courseScore, type GradeComponent, type StructureItem,
 } from '@/lib/grade-structure';
@@ -20,10 +21,42 @@ interface Props {
   /** true = ประกาศผลแล้ว (คะแนนปลายภาคไม่ถูกปิดบังจากอาจารย์อยู่แล้ว แต่ใช้บอกสถานะ) */
   published: boolean;
   readOnly?: boolean;
+  /**
+   * id ของรายการคะแนนที่มีการส่งงานอยู่จริงอย่างน้อยหนึ่งชิ้น
+   *
+   * ใช้เตือนอาจารย์ว่าถ้าตรวจงานที่ส่งภายหลัง trigger trg_sync_submission_score
+   * จะเขียนทับคะแนนที่กรอกเองทิ้ง กรณีสอบกระดาษที่ไม่มีใครส่งงานเลยจะไม่อยู่ใน
+   * ชุดนี้ จึงไม่ต้องเตือนให้รำคาญ
+   */
+  itemsWithSubmissions?: Set<string>;
   onChange: (itemId: string, studentId: string, raw: string) => void;
 }
 
 const SUMMARY = '__summary__';
+
+/**
+ * ช่องกรอกคะแนนช่องนี้พิมพ์ได้หรือไม่ — กฎเดียวที่ใช้ทั้งตาราง
+ *
+ * แยกออกมาเป็นฟังก์ชันบริสุทธิ์เพื่อให้ทดสอบกฎได้ตรง ๆ โดยไม่ต้อง render ตาราง
+ * ทั้งใบ กฎนี้เคยผิดมาแล้วตรงที่เหมาว่า source ไม่ใช่ manual คือแก้ไม่ได้ทั้งหมด
+ * ซึ่งกินงานจาก assignment เข้าไปด้วย ทำให้อาจารย์ที่สอบแบบกระดาษกรอกคะแนนไม่ได้
+ *
+ * ลำดับความสำคัญ
+ *   1. ประกาศผลแล้ว  ล็อกเสมอ สวิตช์แก้ด้วยมือก็ปลดไม่ได้
+ *   2. คะแนนเข้าเรียน ล็อกไว้ก่อน ปลดได้ด้วยสวิตช์ระดับคอลัมน์
+ *   3. ที่เหลือ       พิมพ์ได้ รวมถึงงานที่มาจาก assignment
+ */
+export function isCellLocked(args: {
+  readOnly?: boolean;
+  itemSource: StructureItem['source'];
+  componentScoreMode?: string;
+  manualOverride?: boolean;
+}): boolean {
+  if (args.readOnly) return true;
+  const fromAttendance = args.componentScoreMode === 'auto_attendance'
+    || args.itemSource === 'attendance';
+  return fromAttendance && !args.manualOverride;
+}
 
 /** ปัดสองตำแหน่งตอนแสดงผลเท่านั้น ไม่ปัดระหว่างคำนวณ และไม่โชว์ .00 ที่ไม่จำเป็น */
 const round2 = (n: number) => String(Math.round(n * 100) / 100);
@@ -40,9 +73,26 @@ const round2 = (n: number) => String(Math.round(n * 100) / 100);
  * จะไม่ตรงกัน
  */
 const GradeSheet = ({
-  components, items, students, grades, badCells, scale, published, readOnly, onChange,
+  components, items, students, grades, badCells, scale, published, readOnly,
+  itemsWithSubmissions, onChange,
 }: Props) => {
   const [tab, setTab] = useState<string>(components[0]?.id ?? SUMMARY);
+
+  /**
+   * คอลัมน์คะแนนเข้าเรียนที่อาจารย์เปิดให้แก้ด้วยมือ (คีย์ = id ของรายการ)
+   *
+   * ไม่เก็บลงฐานข้อมูลโดยตั้งใจ เป็นสวิตช์ชั่วคราวของหน้าจอเท่านั้น
+   * เหตุที่ต้องมีสวิตช์กั้นแทนการปลดล็อกทิ้ง เพราะคะแนนเข้าเรียนคำนวณจากข้อมูล
+   * การสแกนจริง ถ้าพิมพ์ทับโดยไม่ตั้งใจ ตัวเลขจะไม่ตรงกับหลักฐานในระบบ
+   * และอธิบายที่มาของคะแนนไม่ได้เมื่อมีการโต้แย้ง
+   */
+  const [manualOverride, setManualOverride] = useState<Record<string, boolean>>({});
+
+  /** ช่องที่ถูกพิมพ์ทับด้วยมือในรอบนี้ ใช้ทำเครื่องหมายให้ต่างจากค่าที่ระบบคำนวณ */
+  const [handEdited, setHandEdited] = useState<Record<string, boolean>>({});
+
+  /** เตือนเรื่องการส่งงานครั้งเดียวต่อหนึ่งรายการ ไม่ใช่ทุกครั้งที่พิมพ์ */
+  const warned = useRef<Set<string>>(new Set());
 
   const itemsOf = useMemo(() => {
     const m = new Map<string, StructureItem[]>();
@@ -59,6 +109,54 @@ const GradeSheet = ({
   const activeItems = active ? (itemsOf.get(active.id) ?? []) : [];
   /** คอลัมน์ของหมวดนี้ยังถูกปิดบังจากนักศึกษาอยู่ (ปลายภาคและยังไม่ประกาศผล) */
   const lockedColumn = !!active?.is_final_exam && !published;
+
+  /**
+   * รายการนี้เป็นคะแนนที่ระบบคำนวณจากการเข้าเรียนหรือไม่
+   *
+   * เดิมโค้ดถือว่า "source ไม่ใช่ manual" คือแก้ไม่ได้ทั้งหมด ซึ่งเหมารวมงานที่
+   * มาจาก assignment เข้าไปด้วย อาจารย์ที่สอบแบบกระดาษจึงกรอกคะแนนไม่ได้เลย
+   * ทั้งที่ฐานข้อมูลอนุญาตให้เขียนได้ (ไม่มี constraint หรือ trigger ใดห้ามไว้)
+   * ตัวล็อกที่ควรมีจริง ๆ มีแค่คะแนนเข้าเรียนเท่านั้น
+   */
+  const isAttendanceItem = (it: StructureItem) =>
+    active?.score_mode === 'auto_attendance' || it.source === 'attendance';
+
+  /** ช่องของรายการนี้พิมพ์ไม่ได้หรือไม่ — ใช้กฎเดียวกับที่เทสต์ครอบไว้ */
+  const isItemLocked = (it: StructureItem) => isCellLocked({
+    readOnly,
+    itemSource: it.source,
+    componentScoreMode: active?.score_mode,
+    manualOverride: manualOverride[it.id],
+  });
+
+  const toggleManual = (itemId: string) => {
+    setManualOverride(prev => {
+      const next = !prev[itemId];
+      if (next) {
+        toast.warning('เปิดให้แก้คะแนนเข้าเรียนด้วยมือแล้ว', {
+          description: 'คะแนนนี้คำนวณจากการสแกนจริง ถ้าพิมพ์ทับจะไม่ตรงกับหลักฐานในระบบ',
+        });
+      }
+      return { ...prev, [itemId]: next };
+    });
+  };
+
+  /**
+   * ดักการพิมพ์เพื่อเตือนและทำเครื่องหมาย ก่อนส่งต่อให้ผู้เรียกตามเดิม
+   * ไม่แตะค่าที่ส่งออกไป จึงไม่กระทบเส้นทางบันทึกคะแนนที่มีอยู่
+   */
+  const handleChange = (it: StructureItem, studentId: string, raw: string) => {
+    if (itemsWithSubmissions?.has(it.id) && !warned.current.has(it.id)) {
+      warned.current.add(it.id);
+      toast.warning(`"${it.name}" มีการส่งงานอยู่`, {
+        description: 'ถ้าตรวจงานที่ส่งภายหลัง คะแนนที่กรอกเองจะถูกเขียนทับ',
+      });
+    }
+    if (isAttendanceItem(it)) {
+      setHandEdited(prev => ({ ...prev, [`${it.id}:${studentId}`]: true }));
+    }
+    onChange(it.id, studentId, raw);
+  };
 
   /** น้ำหนักรวมที่อาจารย์ตั้งไว้ทุกหมวด — ตัวหารของ "ตรวจไปแล้วกี่เปอร์เซ็นต์" */
   const declaredWeight = useMemo(
@@ -112,7 +210,8 @@ const GradeSheet = ({
           <div className="px-3 py-2 text-[10px] text-muted-foreground leading-relaxed border-b border-border">
             วิธีคิด: {calcModeLabels[active.calc_mode]}
             {active.drop_lowest > 0 && ` · ตัดคะแนนต่ำสุดออก ${active.drop_lowest} รายการ`}
-            {active.score_mode === 'auto_attendance' && ' · คะแนนมาจากการเข้าเรียน กรอกมือไม่ได้'}
+            {active.score_mode === 'auto_attendance'
+              && ' · คะแนนมาจากการเข้าเรียน ถ้าต้องแก้เป็นรายคน กดปุ่ม "แก้ด้วยมือ" ที่หัวคอลัมน์'}
             {active.is_final_exam && !published && ' · นักศึกษายังไม่เห็นคะแนนหมวดนี้จนกว่าจะประกาศผล'}
           </div>
 
@@ -144,6 +243,23 @@ const GradeSheet = ({
                           {active.calc_mode === 'weighted_items' && ` · ${it.weight_in_component}%`}
                           {lockedColumn && ' · ล็อก'}
                         </span>
+                        {/* สวิตช์ปลดล็อกเฉพาะคอลัมน์คะแนนเข้าเรียน
+                            ไม่ขึ้นตอนประกาศผลแล้ว เพราะตอนนั้นล็อกทุกช่องอยู่ดี
+                            การโชว์สวิตช์ที่กดแล้วไม่เกิดอะไรทำให้เข้าใจผิด */}
+                        {isAttendanceItem(it) && !readOnly && (
+                          <button type="button" onClick={() => toggleManual(it.id)}
+                            aria-pressed={!!manualOverride[it.id]}
+                            className={`mt-1 mx-auto flex items-center gap-1 px-1.5 py-0.5 rounded-md
+                              text-[9px] font-medium transition-colors ${
+                              manualOverride[it.id]
+                                ? 'bg-warning/20 text-warning'
+                                : 'bg-muted text-muted-foreground hover:bg-muted/70'}`}>
+                            {manualOverride[it.id]
+                              ? <PencilLine className="w-2.5 h-2.5" />
+                              : <Lock className="w-2.5 h-2.5" />}
+                            แก้ด้วยมือ
+                          </button>
+                        )}
                       </th>
                     ))}
                     <th className="p-2.5 font-medium text-muted-foreground whitespace-nowrap">
@@ -165,8 +281,8 @@ const GradeSheet = ({
                         {activeItems.map(it => {
                           const key = `${it.id}:${s.id}`;
                           const err = badCells[key];
-                          const auto = active.score_mode === 'auto_attendance'
-                            || it.source !== 'manual';
+                          const locked = isItemLocked(it);
+                          const edited = !!handEdited[key];
                           return (
                             <td key={it.id} className="p-1.5 text-center">
                               <input
@@ -174,15 +290,27 @@ const GradeSheet = ({
                                 value={grades[key] ?? ''}
                                 // ช่องว่าง = ยังไม่ตรวจ ไม่ใช่ศูนย์ แสดงขีดไว้ให้อ่านออก
                                 placeholder="—"
-                                disabled={readOnly || auto}
-                                onChange={e => onChange(it.id, s.id, e.target.value)}
-                                title={err ?? (auto ? 'คะแนนนี้คำนวณอัตโนมัติ แก้ที่ต้นทาง' : undefined)}
+                                disabled={locked}
+                                onChange={e => handleChange(it, s.id, e.target.value)}
+                                title={err ?? (
+                                  readOnly ? 'ประกาศผลแล้ว แก้คะแนนไม่ได้'
+                                  : locked ? 'คะแนนจากการเข้าเรียน กดปุ่ม "แก้ด้วยมือ" ที่หัวคอลัมน์ก่อนจึงจะพิมพ์ได้'
+                                  : edited ? 'ค่านี้ถูกพิมพ์ทับด้วยมือ ไม่ใช่ค่าที่ระบบคำนวณ'
+                                  : undefined)}
                                 aria-invalid={!!err}
                                 className={`w-14 px-1.5 py-1 rounded-lg text-center outline-none disabled:opacity-60 ${
                                   err ? 'bg-destructive/15 text-destructive ring-1 ring-destructive'
+                                  // ช่องที่พิมพ์ทับด้วยมือต้องดูต่างจากค่าที่ระบบคำนวณ
+                                  // ใช้ทั้งสีและขอบ ไม่พึ่งสีอย่างเดียว เผื่อคนตาบอดสี
+                                  : edited ? 'bg-warning/15 text-foreground ring-1 ring-warning'
                                       : 'bg-muted text-foreground'
                                 }`}
                               />
+                              {edited && (
+                                <span className="block text-[8px] text-warning leading-none mt-0.5">
+                                  แก้มือ
+                                </span>
+                              )}
                             </td>
                           );
                         })}

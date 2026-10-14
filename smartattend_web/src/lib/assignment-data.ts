@@ -138,3 +138,41 @@ export async function getSubmissionFileUrl(path: string): Promise<string | null>
   if (error) { console.error('getSubmissionFileUrl', error); return null; }
   return data?.signedUrl ?? null;
 }
+
+/**
+ * id ของรายการคะแนนในรายวิชาที่ "มีการส่งงานอยู่จริง" อย่างน้อยหนึ่งชิ้น
+ *
+ * ใช้เตือนอาจารย์ในหน้ากรอกคะแนนว่า ถ้าตรวจงานที่ส่งภายหลัง trigger
+ * trg_sync_submission_score จะเขียนทับคะแนนที่กรอกเองทิ้ง
+ *
+ * แยกเป็นสองคำสั่งแทนการ join ชั้นเดียว เพราะ PostgREST นับแถวของตารางลูก
+ * ด้วยไวยากรณ์เฉพาะที่อ่านยากและพังเงียบเมื่อไม่มีแถว สองคำสั่งนี้ตรงไปตรงมา
+ * และรายวิชาหนึ่งมีงานไม่กี่สิบชิ้น จึงไม่ใช่ปัญหาด้านความเร็ว
+ */
+export async function fetchItemsWithSubmissions(courseId: string): Promise<Set<string>> {
+  const { data: asg, error: e1 } = await (supabase as any)
+    .from('assignments')
+    .select('id, grade_item_id')
+    .eq('course_id', courseId)
+    .not('grade_item_id', 'is', null);
+  if (e1 || !asg?.length) {
+    if (e1) console.warn('fetchItemsWithSubmissions (assignments)', e1);
+    return new Set();
+  }
+
+  const byAssignment = new Map<string, string>(
+    asg.map((a: any) => [a.id as string, a.grade_item_id as string]));
+
+  const { data: subs, error: e2 } = await (supabase as any)
+    .from('assignment_submissions')
+    .select('assignment_id')
+    .in('assignment_id', Array.from(byAssignment.keys()));
+  if (e2) { console.warn('fetchItemsWithSubmissions (submissions)', e2); return new Set(); }
+
+  const out = new Set<string>();
+  for (const r of subs ?? []) {
+    const itemId = byAssignment.get(r.assignment_id);
+    if (itemId) out.add(itemId);
+  }
+  return out;
+}

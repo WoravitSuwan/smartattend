@@ -14,6 +14,7 @@ import { Sparkles, Loader2, Save, Download, Upload } from 'lucide-react';
 import GradeScalePanel from '@/components/GradeScalePanel';
 import GradeStructurePanel from '@/components/GradeStructurePanel';
 import { recalcAttendanceScores, type RecalcResult } from '@/lib/attendance-score-data';
+import { fetchItemsWithSubmissions } from '@/lib/assignment-data';
 import PublishGradesPanel from '@/components/PublishGradesPanel';
 import GradeSheet from '@/components/GradeSheet';
 import { useUnsavedWarning } from '@/lib/use-unsaved-warning';
@@ -34,6 +35,8 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
    *  ไม่มีการอ่าน grade_items.weight ในหน้านี้อีกแล้ว */
   const [components, setComponents] = useState<GradeComponent[]>([]);
   const [structureItems, setStructureItems] = useState<StructureItem[]>([]);
+  /** รายการคะแนนที่มีการส่งงานอยู่ ใช้เตือนก่อนกรอกคะแนนทับ */
+  const [itemsWithSubmissions, setItemsWithSubmissions] = useState<Set<string>>(new Set());
   const [students, setStudents] = useState<Student[]>([]);
   const [grades, setGrades] = useState<Record<string, number | null>>({}); // `${itemId}:${studentId}`
   const [initialGrades, setInitialGrades] = useState<Record<string, number | null>>({});
@@ -73,6 +76,7 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
     const its = await fetchStructureItems(courseId);
     setComponents(comps);
     setStructureItems(its);
+    setItemsWithSubmissions(await fetchItemsWithSubmissions(courseId));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: enr } = await (supabase as any)
@@ -435,6 +439,7 @@ const GradeManagementPage = ({ embeddedCourseId }: { embeddedCourseId?: string }
                 scale={scale}
                 published={published}
                 readOnly={gradesLocked}
+                itemsWithSubmissions={itemsWithSubmissions}
                 onChange={setScore}
               />
             )}
