@@ -1,9 +1,10 @@
-import React, { ReactNode, useState } from 'react';
+import React, { ReactNode, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth-context';
 import { useTheme } from '@/lib/theme-context';
 import { useNotifications } from '@/lib/notification-context';
 import { useConfirm } from '@/lib/confirm-context';
+import { groupNotifications, tidyMessage } from '@/lib/notification-display';
 import { toast } from 'sonner';
 import { Home, BookOpen, User, ClipboardList, LogOut, Sun, Moon, FileText, Bell, X, CheckCheck, CalendarOff, Upload, Users, Camera, ShieldCheck, Trash2, BellOff, MoreHorizontal } from 'lucide-react';
 import MoreMenuSheet, { type MoreMenuGroup } from '@/components/MoreMenuSheet';
@@ -133,13 +134,62 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
 
+  /**
+   * รายการที่กดลบไปแล้วแต่ยังไม่ลบจริง รอให้กด "เลิกทำ" ได้ก่อน
+   *
+   * ปุ่มถังขยะอยู่ติดกับเนื้อหาและกดพลาดง่าย แต่การลบแล้วเรียกคืนจากฐานข้อมูล
+   * ทำไม่ได้ จึงหน่วงการลบจริงไว้ชั่วครู่แทน ระหว่างนั้นซ่อนออกจากรายการไปก่อน
+   * เพื่อให้รู้สึกว่าลบทันที
+   */
+  const [pendingDelete, setPendingDelete] = useState<Set<string>>(new Set());
+
   const myNotifications = notifications
     .filter(n => n.userId === user?.id)
     .slice(0, 20);
-  const myUnread = myNotifications.filter(n => !n.read).length;
+  const visibleNotifications = myNotifications.filter(n => !pendingDelete.has(n.id));
+  const myUnread = visibleNotifications.filter(n => !n.read).length;
+
+  /** ยุบรายการซ้ำและแบ่งกลุ่มตามวัน คำนวณใหม่เมื่อรายการหรือคิวลบเปลี่ยน */
+  const notificationGroups = useMemo(
+    () => groupNotifications(visibleNotifications, new Date()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visibleNotifications.map(n => n.id).join(','), visibleNotifications.length],
+  );
+
+  const UNDO_WINDOW_MS = 5000;
+
+  /** ลบแบบมีช่วงให้เลิกทำ ids เป็นหลายตัวได้เพราะรายการที่ยุบรวมกันถือหลาย id */
+  const requestDelete = (ids: string[]) => {
+    setPendingDelete(prev => new Set([...prev, ...ids]));
+    let undone = false;
+    const timer = setTimeout(() => {
+      if (undone) return;
+      ids.forEach(id => deleteNotification(id));
+      setPendingDelete(prev => {
+        const next = new Set(prev);
+        ids.forEach(id => next.delete(id));
+        return next;
+      });
+    }, UNDO_WINDOW_MS);
+    toast('ลบการแจ้งเตือนแล้ว', {
+      duration: UNDO_WINDOW_MS,
+      action: {
+        label: 'เลิกทำ',
+        onClick: () => {
+          undone = true;
+          clearTimeout(timer);
+          setPendingDelete(prev => {
+            const next = new Set(prev);
+            ids.forEach(id => next.delete(id));
+            return next;
+          });
+        },
+      },
+    });
+  };
 
   const handleClearAll = async () => {
-    const n = myNotifications.length;
+    const n = visibleNotifications.length;
     if (!await ask({
       title: 'ลบการแจ้งเตือนทั้งหมด',
       description: `รายการทั้ง ${n} รายการจะหายไป และเรียกกลับคืนไม่ได้`,
@@ -149,7 +199,11 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
     toast.success('ลบการแจ้งเตือนทั้งหมดแล้ว');
   };
 
-  const renderNotificationCard = (n: typeof myNotifications[number], i: number, useMotion: boolean) => {
+  const renderNotificationCard = (
+    entry: { item: typeof myNotifications[number]; count: number; ids: string[] },
+    i: number, useMotion: boolean,
+  ) => {
+    const { item: n, count, ids } = entry;
     const isInvite = n.type === 'course_invite' && n.actionRequired && n.status !== 'actioned';
     const isCheckedIn = n.type === 'student_checked_in' && !!n.relatedId;
     const meta = n.relatedId ? courseInvites[n.relatedId] : undefined;
@@ -166,7 +220,7 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
           dragConstraints: { left: 0, right: 0 },
           dragElastic: { left: 0.6, right: 0 },
           onDragEnd: (_e: unknown, info: { offset: { x: number } }) => {
-            if (info.offset.x < -80) deleteNotification(n.id);
+            if (info.offset.x < -80) requestDelete(ids);
           },
         }
       : {};
@@ -174,12 +228,16 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
       <Wrapper
         key={n.id}
         {...wrapperProps}
-        className={`relative w-full text-left px-4 py-3 border-b border-border/30 transition-colors ${!n.read ? 'bg-primary/5' : ''}`}
+        /* ยังไม่อ่านต่างจากอ่านแล้วด้วยสามอย่าง พื้นหลัง แถบสีด้านซ้าย และ
+           ความหนาของตัวอักษร ไม่พึ่งสีอย่างเดียวเผื่อคนตาบอดสี */
+        className={`relative w-full text-left px-4 py-3 border-b border-border/30 transition-colors ${
+          !n.read ? 'bg-primary/[0.07] border-l-2 border-l-primary' : 'border-l-2 border-l-transparent'
+        }`}
       >
         <button
           type="button"
-          aria-label="ลบการแจ้งเตือน"
-          onClick={(e: React.MouseEvent) => { e.stopPropagation(); deleteNotification(n.id); }}
+          aria-label={count > 1 ? `ลบการแจ้งเตือน ${count} รายการ` : 'ลบการแจ้งเตือน'}
+          onClick={(e: React.MouseEvent) => { e.stopPropagation(); requestDelete(ids); }}
           className="absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
         >
           <Trash2 className="w-3.5 h-3.5" />
@@ -187,7 +245,7 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
         <button
           type="button"
           onClick={() => {
-            markAsRead(n.id);
+            ids.forEach(id => markAsRead(id));
             if (isCheckedIn) {
               setShowNotifications(false);
               navigate(`/instructor/attendance?session=${n.relatedId}`);
@@ -200,10 +258,23 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
           <span className="text-lg mt-0.5">{typeIcon[n.type] || '🔔'}</span>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <p className={`text-xs font-semibold ${!n.read ? 'text-foreground' : 'text-muted-foreground'}`}>{n.title}</p>
-              {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />}
+              <p className={`text-xs ${!n.read
+                ? 'font-bold text-foreground' : 'font-medium text-muted-foreground'}`}>
+                {n.title}
+              </p>
+              {count > 1 && (
+                <span className="px-1.5 py-px rounded-full bg-muted text-[9px] font-semibold text-muted-foreground flex-shrink-0">
+                  {count} ครั้ง
+                </span>
+              )}
+              {!n.read && (
+                <span className="text-[9px] font-semibold text-primary flex-shrink-0">ใหม่</span>
+              )}
             </div>
-            <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{n.message}</p>
+            {/* ข้อความบางชนิดถูกต่อสตริงมาจากฐานข้อมูล ถ้าเหตุผลว่างจะมีตัวคั่นลอย */}
+            <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">
+              {tidyMessage(n.message)}
+            </p>
             {isInvite && meta && (
               <p className="text-[11px] text-foreground/80 mt-1 font-medium">
                 {meta.code} — {meta.name}{meta.section ? ` (ตอน ${meta.section})` : ''}
@@ -328,7 +399,7 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
                           <CheckCheck className="w-3 h-3" /> อ่านทั้งหมด
                         </button>
                       )}
-                      {myNotifications.length > 0 && (
+                      {visibleNotifications.length > 0 && (
                         <button onClick={handleClearAll} className="flex items-center gap-1 text-[10px] text-destructive font-medium">
                           <Trash2 className="w-3 h-3" /> ล้างทั้งหมด
                         </button>
@@ -337,13 +408,22 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
                     </div>
                   </div>
                   <div className="overflow-y-auto flex-1">
-                    {myNotifications.length === 0 ? (
-                      <div className="py-10 text-center">
+                    {visibleNotifications.length === 0 ? (
+                      <div className="py-10 text-center px-6">
                         <BellOff className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
-                        <p className="text-xs text-muted-foreground">ไม่มีการแจ้งเตือน</p>
+                        <p className="text-xs font-medium text-foreground">ไม่มีการแจ้งเตือน</p>
+                        <p className="text-[11px] text-muted-foreground mt-1">
+                          เมื่อมีคาบเรียนเปลี่ยนแปลง คำเชิญเข้าวิชา หรือประกาศคะแนน จะแจ้งที่นี่
+                        </p>
                       </div>
                     ) : (
-                      myNotifications.map((n, i) => renderNotificationCard(n, i, false))
+                      notificationGroups.flatMap(g => [
+                        <p key={`h-${g.label}`}
+                          className="sticky top-0 z-10 px-4 py-1.5 bg-muted/60 backdrop-blur text-[10px] font-semibold text-muted-foreground">
+                          {g.label}
+                        </p>,
+                        ...g.items.map((e, i) => renderNotificationCard(e, i, false)),
+                      ])
                     )}
                   </div>
                 </motion.div>
@@ -469,7 +549,7 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
                       <CheckCheck className="w-3 h-3" /> อ่านทั้งหมด
                     </button>
                   )}
-                  {myNotifications.length > 0 && (
+                  {visibleNotifications.length > 0 && (
                     <button onClick={handleClearAll} className="flex items-center gap-1 text-[10px] text-destructive font-medium">
                       <Trash2 className="w-3 h-3" /> ล้างทั้งหมด
                     </button>
@@ -482,14 +562,23 @@ const MobileLayout = ({ children, title }: MobileLayoutProps) => {
 
               {/* Notification List */}
               <div className="overflow-y-auto flex-1">
-                {myNotifications.length === 0 ? (
-                  <div className="py-10 text-center">
+                {visibleNotifications.length === 0 ? (
+                  <div className="py-10 text-center px-6">
                     <BellOff className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
-                    <p className="text-xs text-muted-foreground">ไม่มีการแจ้งเตือน</p>
+                    <p className="text-xs font-medium text-foreground">ไม่มีการแจ้งเตือน</p>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      เมื่อมีคาบเรียนเปลี่ยนแปลง คำเชิญเข้าวิชา หรือประกาศคะแนน จะแจ้งที่นี่
+                    </p>
                   </div>
                 ) : (
                   <AnimatePresence initial={false}>
-                    {myNotifications.map((n, i) => renderNotificationCard(n, i, true))}
+                    {notificationGroups.flatMap(g => [
+                      <p key={`h-${g.label}`}
+                        className="sticky top-0 z-10 px-4 py-1.5 bg-muted/60 backdrop-blur text-[10px] font-semibold text-muted-foreground">
+                        {g.label}
+                      </p>,
+                      ...g.items.map((e, i) => renderNotificationCard(e, i, true)),
+                    ])}
                   </AnimatePresence>
                 )}
               </div>
