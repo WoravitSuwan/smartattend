@@ -13,12 +13,26 @@ const cleanEnv = (v: string | undefined): string =>
 const SUPABASE_URL = cleanEnv(import.meta.env.VITE_SUPABASE_URL);
 const SUPABASE_PUBLISHABLE_KEY = cleanEnv(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
 
-if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-  throw new Error(
-    'ไม่พบค่าเชื่อมต่อฐานข้อมูล — ตรวจสอบไฟล์ .env ว่ามี VITE_SUPABASE_URL ' +
-    'และ VITE_SUPABASE_PUBLISHABLE_KEY ครบถ้วน แล้วรัน npm run dev ใหม่',
-  );
-}
+/** ถ้าตั้งค่าไม่ครบจะไม่ว่าง และ main.tsx จะแสดงหน้าบอกสาเหตุแทนการเปิดแอป
+ *
+ *  เดิมบรรทัดนี้เป็น `throw` ซึ่งเกิดตอน import ก่อน React ได้ render อะไรเลย
+ *  ผลคือจอขาวเปล่าที่ไม่บอกสาเหตุ ซึ่งเป็นอาการที่ไล่สาเหตุยากที่สุดเวลา
+ *  ลืมตั้ง environment variable บนโฮสต์ (ค่า VITE_ ถูกฝังตอน build ไม่ใช่ตอนรัน
+ *  ดังนั้นการตั้งค่าเพิ่มบนโฮสต์ต้อง deploy ใหม่ด้วย ค่าจึงจะเข้าไฟล์)
+ */
+export const supabaseConfigError: string | null =
+  !SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY
+    ? 'ไม่พบค่าเชื่อมต่อฐานข้อมูล — ต้องมี VITE_SUPABASE_URL และ ' +
+      'VITE_SUPABASE_PUBLISHABLE_KEY ครบทั้งสองค่า ถ้าเพิ่งเพิ่มค่าบนโฮสต์ ' +
+      'ต้อง deploy ใหม่อีกครั้งค่าจึงจะมีผล'
+    : null;
+
+/** ค่าหลอกสำหรับกรณีตั้งค่าไม่ครบ มีไว้ให้ createClient ไม่โยน error ทิ้ง
+ *  ทั้งแอป แอปจะได้ render หน้าบอกสาเหตุออกมาได้ ไม่ใช่จอขาว
+ *  ตัวไคลเอนต์นี้ไม่ถูกใช้งานจริง เพราะ main.tsx หยุดก่อนเข้าแอป
+ */
+const CLIENT_URL = SUPABASE_URL || 'https://placeholder.supabase.co';
+const CLIENT_KEY = SUPABASE_PUBLISHABLE_KEY || 'placeholder-key';
 
 
 function isNewSupabaseApiKey(value: string): boolean {
@@ -48,9 +62,9 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+export const supabase = createClient<Database>(CLIENT_URL, CLIENT_KEY, {
   global: {
-    fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY),
+    fetch: createSupabaseFetch(CLIENT_KEY),
   },
   auth: {
     storage: localStorage,

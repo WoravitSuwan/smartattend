@@ -14,6 +14,7 @@ import {
   type RegistrationStatus,
 } from "@/lib/registration-status";
 import { supabase } from "@/integrations/supabase/client";
+import { BootGate } from "@/components/BootScreen";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
@@ -61,10 +62,30 @@ const queryClient = new QueryClient();
 
 function ProtectedRoute({ children, role }: { children: React.ReactNode; role?: string }) {
   const { isAuthenticated, user, loading } = useAuth();
-  if (loading) return null;
+  // เดิมบรรทัดนี้คือ `return null` ซึ่งวาดเป็นจอขาวเปล่า ถ้า auth ไม่เสร็จก็ค้างขาวถาวร
+  if (loading) return <BootGate label="กำลังตรวจสอบสิทธิ์…" />;
   if (!isAuthenticated) return <Navigate to="/" replace />;
   if (role && user?.role !== role) return <Navigate to="/" replace />;
   return <>{children}</>;
+}
+
+/**
+ * อ่านว่ากรอกประวัติครบหรือยัง — คืน null เมื่อ "ไม่รู้" ไม่ใช่เมื่อ "ยังไม่ครบ"
+ *
+ * แยกออกมาเพื่อให้ความล้มเหลวของคำขอต่างจากคำตอบว่า false อย่างชัดเจน เดิมคำขอนี้
+ * อยู่ใน Promise.all โดยไม่มี catch พอ fetch โยน (สัญญาณมือถือขาดช่วง ฐานข้อมูล
+ * ไม่ตอบ) ทั้ง Promise.all จะ reject แล้ว setState ที่อยู่บรรทัดถัดไปไม่ถูกเรียกเลย
+ * สถานะจึงค้างที่ 'loading' ตลอดไป = จอขาวค้างถาวร ไม่มี timeout ไม่มีปุ่มลองใหม่
+ */
+async function fetchProfileCompleted(uid: string): Promise<boolean | null> {
+  try {
+    const { data, error } = await supabase
+      .from('profiles').select('profile_completed_at').eq('user_id', uid).maybeSingle();
+    if (error) return null;
+    return !!data?.profile_completed_at;
+  } catch {
+    return null;
+  }
 }
 
 /** Blocks students from the main app until admin marks training_success.
@@ -74,31 +95,44 @@ function StudentGate({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const [status, setStatus] = useState<RegistrationStatus | null | 'loading'>('loading');
   const [profileCompleted, setProfileCompleted] = useState<boolean | null>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== 'student') { setStatus(null); return; }
     let alive = true;
     let unsub: (() => void) | null = null;
+    setFailed(false);
     (async () => {
       const uid = await getCurrentAuthUserId();
       if (!uid) { if (alive) setStatus(null); return; }
       const [s, prof] = await Promise.all([
         fetchMyRegStatus(uid).catch(() => null),
-        supabase.from('profiles').select('profile_completed_at').eq('user_id', uid).maybeSingle(),
+        fetchProfileCompleted(uid),
       ]);
       if (!alive) return;
+      // อ่านประวัติไม่ได้ = ยังตัดสินใจเรื่องเส้นทางไม่ได้ ต้องบอกผู้ใช้
+      // ไม่ใช่เดาว่า "ยังไม่ครบ" แล้วพาไปหน้ากรอกประวัติผิด ๆ
+      if (prof === null) { setFailed(true); return; }
       setStatus(s);
-      setProfileCompleted(!!prof.data?.profile_completed_at);
+      setProfileCompleted(prof);
       unsub = subscribeRegStatuses(async () => {
         const fresh = await fetchMyRegStatus(uid).catch(() => null);
         if (alive) setStatus(fresh);
       }, uid);
-    })();
+    })().catch(() => {
+      // กันไว้อีกชั้นให้ไม่มีทางหลุดเป็น unhandled rejection แล้วค้างขาว
+      if (alive) setFailed(true);
+    });
     return () => { alive = false; unsub?.(); };
   }, [isAuthenticated, user?.role, user?.id, user?.profileCompletedAt]);
 
   if (user?.role !== 'student') return <>{children}</>;
-  if (status === 'loading' || profileCompleted === null) return null;
+  if (failed) {
+    return <BootGate failed detail="อ่านสถานะการลงทะเบียนของคุณไม่ได้ ตรวจสอบสัญญาณอินเทอร์เน็ตแล้วลองใหม่" />;
+  }
+  if (status === 'loading' || profileCompleted === null) {
+    return <BootGate label="กำลังตรวจสอบสถานะการลงทะเบียน…" />;
+  }
 
   const approved = status?.status === 'training_success';
   const allowedWhilePending = pathname === '/student/waiting' || pathname === '/student/face-register';
@@ -129,7 +163,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={
         loading
-          ? null
+          ? <BootGate label="กำลังตรวจสอบสิทธิ์…" />
           : isAuthenticated
             ? <Navigate to={roleHome(user?.role)} replace />
             : <LoginPage />
